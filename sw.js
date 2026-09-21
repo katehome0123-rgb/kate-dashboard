@@ -1,7 +1,7 @@
 // アプリの「外側」(画面の部品)だけを保存して起動を速くする。売上などのデータは一切保存しない。
-const CACHE = 'kate-shell-v7';
+const CACHE = 'kate-shell-v9';
 const SHELL = ['./', './index.html', './css/app.css', './js/main.js', './js/config.js', './js/api.js', './js/auth.js', './js/engine.js', './js/pdf.js', './js/ui.js',
-  './js/screens/home.js', './js/screens/sales.js', './js/screens/analysis.js', './js/screens/profit.js', './js/screens/cash.js', './js/screens/maint.js', './js/screens/incentive.js', './js/screens/annual.js', './manifest.webmanifest', './icons/icon-192.png'];
+  './js/screens/home.js', './js/screens/sales.js', './js/screens/analysis.js', './js/screens/profit.js', './js/screens/cash.js', './js/screens/maint.js', './js/screens/incentive.js', './js/screens/annual.js', './js/screens/start.js', './js/screens/persontable.js', './manifest.webmanifest', './icons/icon-192.png'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));

@@ -1,5 +1,5 @@
 # 練習用の架空データを作る(実データは一切使わない)
-import json, random, datetime
+import json, random, datetime, zlib
 random.seed(7)
 routes = [('訪問','訪販',30),('足場','訪販',8),('ヌリカエ','ポータル',22),('窓口','ポータル',8),('リショップ','ポータル',5),('チラシ','自社',9),('紹介','自社',9),('HP','自社',5),('YouTube','自社',3),('追加',None,4),('MIRAI',None,2)]
 people = ['田中','鈴木']
@@ -32,6 +32,18 @@ for y, cnt in [(2024,40),(2025,50),(2026,40)]:
         r = random.choices([x for x in routes if x[1]], weights=[w for _,_,w in routes if _ ])[0] if False else random.choice([x for x in routes if x[1]])
         res = random.choices(['不成約','見積り待ち','長期追客','時期','連絡つかず'], weights=[55,15,15,8,7])[0]
         leads.append({'反響ID': f'R{len(leads)+1:04d}', '反響日': rnd_date(y).isoformat() if not (y==2026) else datetime.date(2026,random.randint(1,9),random.randint(1,28)).isoformat(), '邸名': f'見込み{len(leads)}邸', '担当': random.choice(people), '区分': r[1], '媒体': r[0], '結果': res})
+# 退職した担当(2024年だけ在籍)の見本 → 担当タブには出ない
+for i, c in enumerate([c for c in custs if c['契約日'] < '2025-01-01']):
+    if i % 4 == 0: c['担当C'] = '山田'
+for l in leads:
+    if l['反響日'] < '2025-01-01' and zlib.crc32(l['邸名'].encode()) % 4 == 0: l['担当'] = '山田'
+# ポータルの反響に「紹介数」「番手」(何社に紹介されて何番目に見積りを出したか)。見本なので番手が前ほど決まりやすくしてある
+prng = random.Random(11)
+for l in leads:
+    if l['区分'] != 'ポータル' or not l.get('結果'): continue
+    n = prng.choice([2, 3, 3, 4, 5]); k = min(n, prng.choice([1, 1, 1, 2, 2, 3])) if l['結果'] == '成約' else prng.randint(1, n)
+    if l['結果'] == '成約' or prng.random() < 0.9:
+        l['紹介数'] = n; l['番手'] = k
 leads.sort(key=lambda x: x['反響日'])
 for c in custs:
     if c.get('完工日') and random.random() < 0.7:

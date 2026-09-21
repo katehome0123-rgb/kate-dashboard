@@ -236,3 +236,28 @@ tr.clickrow[aria-current="true"] td { background: color-mix(in srgb, var(--accen
   .stick { position: static; }
   tr { break-inside: avoid; }
 }
+
+/* 売上ボード(担当 × 月。前のマスターシートと同じ形) */
+.salesboard table { min-width: 0; width: max-content; font-size: 12.5px; }
+.salesboard th, .salesboard td { padding: 4px 5px; white-space: nowrap; }
+.salesboard td.cnt, .salesboard th.cnt { width: 28px; min-width: 28px; padding-left: 0; padding-right: 6px; text-align: left; color: var(--ink2); font-size: 12px; }
+.salesboard .c1 { left: 0; min-width: 3.4em; z-index: 2; }
+.salesboard .c2 { left: 3.4em; min-width: 4.4em; z-index: 2; }
+.salesboard td.num { min-width: 3.2em; }
+.salesboard td.person { font-weight: 700; vertical-align: middle; text-align: center; }
+.salesboard tr.grp td { border-top: 2px solid var(--line); }
+.salesboard tr.cum td { color: var(--ink2); }
+.salesboard td.allrow, .salesboard th.allrow { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.salesboard td.stick.allrow { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.salesboard .strongv { font-weight: 700; }
+.slottable td.slot { text-align: center; line-height: 1.25; }
+.slottable td.slot.best { outline: 2px solid var(--good, #1a8a4a); outline-offset: -2px; border-radius: 4px; }
+.slottable .tot td { font-weight: 600; }
+.sumtable .person { font-weight: 700; }
+.sumtable td.allrow, .sumtable th.allrow { background: color-mix(in srgb, var(--accent) 7%, var(--panel)); }
+.sumtable .strongv { font-weight: 700; }
+h3.sub2 { font-size: 13px; margin: 16px 0 6px; color: var(--ink2); font-weight: 600; }
+.sumtable th, .sumtable td { padding: 6px 5px; white-space: nowrap; font-size: 13px; }
+.sumtable th.gh { text-align: center; border-left: 1px solid var(--line); }
+.sumtable th.ph, .sumtable td.strongv, .sumtable td.num:nth-child(3), .sumtable td.num:nth-child(5), .sumtable td.num:nth-child(7) { }
+@media (max-width: 820px) { .sumtable th, .sumtable td { padding: 6px 3px; font-size: 12px; } }

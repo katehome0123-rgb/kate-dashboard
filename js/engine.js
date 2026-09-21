@@ -6,7 +6,7 @@ export const SETTLED = ['成約', '不成約']; // 成約率の分母に入る�
 
 export const num = (v) => {
   if (v === null || v === undefined || v === '') return 0;
-  const n = typeof v === 'number' ? v : Number(String(v).replace(/[,，円\s]/g, ''));
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[,，円万\s]/g, ''));
   return Number.isFinite(n) ? n : 0;
 };
 export const yearOf = (d) => (d ? Number(String(d).slice(0, 4)) : null);
@@ -27,9 +27,15 @@ export function mediaGroup(route) {
 }
 
 // ---- 顧客ごとの数字 ---------------------------------------------
+// 予想粗利(万円)の列。見出しが『粗利(万円・手入力)』でも『予想粗利』などに書き換えられていても拾う('粗利'を含む見出しを探す)
+export function grossOf(c) {
+  for (const k of ['粗利(万円・手入力)', '予想粗利', '粗利']) if (k in c) return num(c[k]);
+  const k = Object.keys(c).find((x) => x.includes('粗利') && !x.startsWith('_'));
+  return k ? num(c[k]) : 0;
+}
 export function enrichCustomer(c) {
   const sales = num(c['契約金額(万円)']); // 税込・万円
-  const gross = num(c['粗利(万円・手入力)']); // 予想粗利・万円
+  const gross = grossOf(c); // 予想粗利・万円
   const costs = COST_COLS.reduce((s, k) => s + num(c[k]), 0); // 円
   const taxEx = (sales * 10000) / 1.1; // 円
   return {
@@ -82,7 +88,7 @@ export const yearsOfCustomers = (custs) => [...new Set(custs.map((c) => c._year)
 // 売上・粗利は按分: 担当Cのみ→100%、担当Cとアポ(担当A)がいる→C 40% : A 60%、担当Aだけ→A 60%(既存の売上シートと同じ)。
 // 契約本数は既存シートと同じく、共同担当の案件は二人とも1本と数える(全体は重複なし)。追加・下請けは本数に数えない。
 export const NO_PERSON = '(担当なし)';
-export function personMonthly(custs, year) {
+export function personMonthly(custs, year, by = '契約日') {
   const blank = () => ({ sales: 0, gross: 0, count: 0 });
   const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, all: blank(), by: {} }));
   const total = { all: blank(), by: {} };
@@ -92,13 +98,13 @@ export function personMonthly(custs, year) {
     b.sales += sales; b.gross += gross; b.count += count;
   };
   for (const c of custs) {
-    if (c._year !== year) continue;
+    if (!c[by] || yearOf(c[by]) !== year) continue;
     const C = c['担当C'] || '', A = c['担当A'] || '';
     const shares = [];
     if (C && A) shares.push([C, 0.4], [A, 0.6]);
     else if (A) shares.push([A, 0.6]); // クロ(担当C)が空: アポの60%分だけ。残り40%は全体にだけ入る(既存の売上シートと同じ)
     else shares.push([C || NO_PERSON, 1]);
-    const r = rows[monthOf(c['契約日']) - 1];
+    const r = rows[monthOf(c[by]) - 1];
     const n = c._count ? 1 : 0;
     r.all.sales += c._sales; r.all.gross += c._gross; r.all.count += n;
     total.all.sales += c._sales; total.all.gross += c._gross; total.all.count += n;
@@ -162,6 +168,18 @@ export function forPerson(custs, person) {
     out.push({ ...c, _sales: c._sales * w, _gross: c._gross * w, _taxEx: c._taxEx * w, _landing: c._landing * w, _costs: c._costs * w });
   }
   return out;
+}
+// 今いる担当者: 最新の契約年に契約(担当C・担当A)がある人。設定シートの「現役の担当」にカンマ区切りで書けば、その名前を優先
+export function activePersons(data, custs) {
+  const set = settingValue(data, '現役の担当').split(/[,、，\s]+/).filter(Boolean);
+  if (set.length) return set;
+  const y = Math.max(0, ...custs.map((c) => c._year || 0));
+  const m = new Map();
+  for (const c of custs) {
+    if (c._year !== y) continue;
+    for (const p of [c['担当C'], c['担当A']]) if (p) m.set(p, (m.get(p) || 0) + c._sales);
+  }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
 }
 // 利益率のタブに出す担当者: 最新の契約年に契約がある人(設定シートの「利益率のタブ」にカンマ区切りで書けば、その名前を優先)
 export function profitPersons(data, custs) {
@@ -406,11 +424,18 @@ export function incentiveLines(data, custs) {
   }
   return lines;
 }
-// 設定シートの「インセン対象外の担当」(カンマ区切り)に書いた名前は、担当者の選択肢に出さない(空欄なら全員)
-export function incentivePersons(data, lines) {
-  const skip = new Set(settingValue(data, 'インセン対象外の担当').split(/[,、，\s]+/).filter(Boolean));
+// インセンの担当者の選択肢: 今いる担当者のうち、設定シートの「インセン対象」(カンマ区切り)があればその人だけ。
+// 「インセン対象外の担当」(カンマ区切り)に書いた名前は外す。
+export function incentivePersons(data, lines, custs = null) {
+  const list = (k) => settingValue(data, k).split(/[,、，\s]+/).filter(Boolean);
+  const only = list('インセン対象'), skip = new Set(list('インセン対象外の担当'));
+  const active = custs ? new Set(activePersons(data, custs)) : null;
   const m = new Map();
-  for (const l of lines) if (!skip.has(l.person)) m.set(l.person, (m.get(l.person) || 0) + 1);
+  for (const l of lines) {
+    if (skip.has(l.person)) continue;
+    if (only.length ? !only.includes(l.person) : (active && !active.has(l.person))) continue;
+    m.set(l.person, (m.get(l.person) || 0) + 1);
+  }
   return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
 }
 // 担当者ごとの月別の合計(新しい月が先)
@@ -510,27 +535,38 @@ export function completedMonths(year, today = todayStr()) {
   return tm > 1 ? tm - 1 : 1;
 }
 const sumTo = (values, n) => values.slice(0, n).reduce((s, v) => s + v, 0);
-// 固定費・変動費の項目ごとに、期間(1月〜through月)の合計・構成比・前年同期との差を出す
+// 固定費・変動費の項目ごとに、期間(1月〜through月)の合計・構成比・前年同期との差を出す。
+// 前年のシートにその項目の名前がない場合は、比べない(prev・diff は null)。名前が同じなら、固定・変動が前年と違っても同じ項目として比べる。
 export function expenseSummary(data, custs, year, through) {
   const cur = annualBook(data, custs, year);
   if (!cur) return null;
   const prev = annualBook(data, custs, year - 1);
-  const map = new Map();
-  const put = (it, isPrev) => {
-    const k = `${it.group}|${it.name}`;
-    const x = map.get(k) || { group: it.group, name: it.name, total: 0, prev: 0, values: Array(12).fill(0) };
-    if (isPrev) x.prev += sumTo(it.values, through);
-    else { x.total += sumTo(it.values, through); x.values = x.values.map((v, i) => v + it.values[i]); }
-    map.set(k, x);
-  };
-  cur.items.forEach((it) => put(it, false));
-  if (prev) prev.items.forEach((it) => put(it, true));
-  const rows = [...map.values()].filter((r) => r.total !== 0 || r.prev !== 0);
+  const prevByKey = new Map(), prevByName = new Map();
+  if (prev) for (const it of prev.items) {
+    const v = sumTo(it.values, through);
+    prevByKey.set(`${it.group}|${it.name}`, (prevByKey.get(`${it.group}|${it.name}`) || 0) + v);
+    const n = prevByName.get(it.name) || { sum: 0, groups: new Set() };
+    n.sum += v; n.groups.add(it.group); prevByName.set(it.name, n);
+  }
+  const curNames = new Map();
+  cur.items.forEach((it) => curNames.set(it.name, (curNames.get(it.name) || 0) + 1));
+  const rows = cur.items.map((it) => {
+    const key = `${it.group}|${it.name}`;
+    let prevVal = null;
+    if (prevByKey.has(key)) prevVal = prevByKey.get(key);
+    else if (curNames.get(it.name) === 1 && prevByName.has(it.name) && prevByName.get(it.name).groups.size === 1) prevVal = prevByName.get(it.name).sum; // 固定↔変動を移した項目
+    const total = sumTo(it.values, through);
+    return { group: it.group, name: it.name, total, prev: prevVal, values: it.values, diff: prevVal === null ? null : total - prevVal };
+  }).filter((r) => r.total !== 0);
   const total = rows.reduce((s, r) => s + r.total, 0);
-  const prevTotal = rows.reduce((s, r) => s + r.prev, 0);
-  rows.forEach((r) => { r.share = total ? r.total / total : null; r.diff = prev ? r.total - r.prev : null; });
+  rows.forEach((r) => { r.share = total ? r.total / total : null; });
   const by = (g) => rows.filter((r) => r.group === g).reduce((s, r) => s + r.total, 0);
-  return { year, through, hasPrev: !!prev, rows, total, prevTotal, fixed: by('固定'), variable: by('変動') };
+  const comparable = rows.filter((r) => r.prev !== null);
+  return {
+    year, through, hasPrev: !!prev, rows, total, fixed: by('固定'), variable: by('変動'),
+    // 前年にもあった項目だけの、今年と前年の合計(合計の比較に使う)
+    cmpTotal: comparable.reduce((s, r) => s + r.total, 0), cmpPrev: comparable.reduce((s, r) => s + r.prev, 0), newCount: rows.length - comparable.length,
+  };
 }
 // 1つの項目(名前で探す。固定・変動の両方にあれば合算)の月別・平均・多い月/少ない月・前年の平均
 export function expenseSeries(data, custs, year, name, through) {
@@ -553,3 +589,78 @@ export const expenseNames = (data, custs, year) => {
   const b = annualBook(data, custs, year);
   return b ? [...new Set(b.items.filter((i) => i.values.some((v) => Math.abs(v) > 0.5)).map((i) => i.name))] : [];
 };
+
+// ---- 着工 ---------------------------------------------------------
+// 着工月ごとの粗利は personMonthly(custs, 年, '着工日') で出す。ここでは「まだ着工していない契約」を拾う。
+//   scheduled = 着工日が今日より後(着工予定)、none = 着工日が入っていない契約
+export function startBacklog(custs, today = todayStr()) {
+  const row = (c) => ({ name: c['顧客名'], contractDate: c['契約日'], startDate: c['着工日'] || null, sales: c._sales, gross: c._gross, add: c._add, sub: c._sub });
+  const scheduled = custs.filter((c) => c['着工日'] && String(c['着工日']).slice(0, 10) > today).map(row).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const none = custs.filter((c) => !c['着工日']).map(row).sort((a, b) => a.contractDate.localeCompare(b.contractDate));
+  const sum = (list, k) => list.reduce((t, r) => t + r[k], 0);
+  return { scheduled, none, scheduledSales: sum(scheduled, 'sales'), scheduledGross: sum(scheduled, 'gross'), noneSales: sum(none, 'sales'), noneGross: sum(none, 'gross') };
+}
+export const startYears = (custs) => [...new Set(custs.map((c) => yearOf(c['着工日'])).filter(Boolean))].sort((a, b) => b - a);
+
+
+// ---- 売上ボード(年ごとの 担当 × 月。前のマスターシートと同じ見た目用) ----------------
+// PH(パーヘッド)= 年間合計 ÷ 月数。月数は、その年の1月(その担当が入った月がそれより後ならその月)から
+// 今月まで(過ぎた年は12月まで)。担当の開始月は、いちばん古い契約の月。設定シートの「担当の開始月」に
+// 「塩野=2024-08,…」のように書けば、その月から数える。全体は、会社でいちばん古い契約の月から。
+const idxOf = (ym) => { const [y, m] = String(ym).slice(0, 7).split('-').map(Number); return y * 12 + (m - 1); };
+export function salesBoard(data, custs, year, { today = todayStr(), persons = null } = {}) {
+  const names = persons || activePersons(data, custs);
+  const pm = personMonthly(custs, year);
+  const nowY = Number(today.slice(0, 4)), nowM = Number(today.slice(5, 7));
+  const endM = year < nowY ? 12 : year === nowY ? nowM : 0;
+  const blank = { sales: 0, gross: 0, count: 0 };
+  const startSet = new Map();
+  for (const part of settingValue(data, '担当の開始月').split(/[,、，\s]+/)) {
+    const [n, ym] = part.split(/[=＝:：]/);
+    if (n && /^\d{4}-\d{1,2}$/.test(ym || '')) startSet.set(n, idxOf(ym.replace(/-(\d)$/, '-0$1')));
+  }
+  const firstIdx = (pred) => custs.filter((c) => c['契約日'] && pred(c)).reduce((m, c) => Math.min(m, idxOf(c['契約日'])), Infinity);
+  const blocks = [...names, null].map((name) => {
+    const get = (r) => (name === null ? r.all : r.by[name]) || blank;
+    let cumS = 0, cumC = 0;
+    const months = pm.rows.map((r) => {
+      const x = get(r);
+      const future = r.month > endM;
+      if (!future) { cumS += x.sales; cumC += x.count; }
+      return { month: r.month, sales: x.sales, gross: x.gross, count: x.count, future, cumSales: future ? null : cumS, cumCount: future ? null : cumC };
+    });
+    const total = (name === null ? pm.total.all : pm.total.by[name]) || blank;
+    const start = startSet.get(name) ?? (name === null ? firstIdx(() => true) : firstIdx((c) => c['担当C'] === name || c['担当A'] === name));
+    const startM = !Number.isFinite(start) ? 13 : Math.floor(start / 12) < year ? 1 : Math.floor(start / 12) === year ? (start % 12) + 1 : 13;
+    const n = Math.max(0, endM - startM + 1);
+    return { name, label: name === null ? '全体' : name, months, total, ph: n ? { sales: total.sales / n, gross: total.gross / n, count: total.count / n, months: n } : null };
+  });
+  return { year, endM, blocks, hidden: pm.persons.filter((p) => !names.includes(p) && p !== NO_PERSON) };
+}
+
+// ---- ポータル: 何社紹介の何番手が決まりやすいか ------------------------------------
+// 反響(区分=ポータル)の「紹介数」(何社に紹介されたか)と「番手」(何番目に見積りを出したか)を数字で読み、
+// 結果が 成約/不成約 のものから 番手×紹介数 の成約率を出す(結果待ちは分母に入れない)。
+const digit = (v) => { const m = String(v ?? '').match(/\d+/); return m ? Number(m[0]) : null; };
+export function portalSlots(leads, { year = null, person = '' } = {}) {
+  const pool = leads.filter((l) => l['区分'] === 'ポータル' && leadDate(l) && (!year || yearOf(leadDate(l)) === year) && (!person || l['担当'] === person));
+  const rows = [];
+  let missing = 0;
+  for (const l of pool) {
+    const n = digit(l['紹介数']), k = digit(l['番手']);
+    if (n === null && k === null) { missing++; continue; }
+    rows.push({ n, k, win: l['結果'] === '成約', lose: l['結果'] === '不成約' });
+  }
+  const tally = (list) => {
+    const win = list.filter((r) => r.win).length, lose = list.filter((r) => r.lose).length;
+    return { win, lose, total: list.length, pending: list.length - win - lose, rate: win + lose ? win / (win + lose) : null };
+  };
+  const uniq = (key) => [...new Set(rows.map((r) => r[key]).filter((v) => v !== null))].sort((a, b) => a - b);
+  const counts = uniq('n'), ranks = uniq('k');
+  const cell = (n, k) => tally(rows.filter((r) => (n === undefined || r.n === n) && (k === undefined || r.k === k)));
+  return {
+    counts, ranks, entered: rows.length, missing, all: tally(rows),
+    grid: ranks.map((k) => ({ rank: k, cells: counts.map((n) => cell(n, k)), total: cell(undefined, k) })),
+    byCount: counts.map((n) => ({ n, ...cell(n, undefined) })),
+  };
+}

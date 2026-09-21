@@ -103,11 +103,11 @@ function rank(ctx, st, through, isCur, today) {
   const diffEl = (d) => (d === null ? '–' : Math.abs(d) < 0.5 ? h('span', { class: 'muted' }, '±0')
     : h('span', { class: d > 0 ? 'negv strong' : 'okgreen strong' }, `${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}`));
   const kpi = (label, v, note) => h('div', { class: 'card kpi' }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, fmt(v), h('small', null, u)), note ? h('div', { class: 'note' }, note) : null);
-  const totalDiff = S.hasPrev ? S.total - S.prevTotal : null;
+  const cmpDiff = S.hasPrev && S.cmpPrev ? S.cmpTotal - S.cmpPrev : null;
 
   return h('div', null,
     h('div', { class: 'grid' },
-      kpi('経費の合計', S.total, S.hasPrev ? h('span', null, `前年同期 ${fmt(S.prevTotal)}${u} (`, diffEl(totalDiff), ')') : span),
+      kpi('経費の合計', S.total, cmpDiff === null ? span : h('span', null, `前年にもあった項目だけで比べると、前年同期 ${fmt(S.cmpPrev)}${u} → 今年 ${fmt(S.cmpTotal)}${u} (`, diffEl(cmpDiff), ')')),
       kpi('うち固定費', S.fixed), kpi('うち変動費', S.variable)),
     h('div', { class: 'controls', style: 'margin-top:16px' },
       segmented([{ value: '', label: '全部' }, { value: '固定', label: '固定費' }, { value: '変動', label: '変動費' }], st.group, (v) => { st.group = v; ctx.rerender(); }, '区分'),
@@ -120,11 +120,11 @@ function rank(ctx, st, through, isCur, today) {
           h('td', { class: 'stick' }, r.name, h('span', { class: 'gtag' }, r.group)),
           h('td', { class: 'num' }, fmt(r.total)),
           h('td', null, barCell((r.share || 0) / maxShare, E.fmtPct(r.share, 1), r.group === '固定' ? 1 : 2)),
-          h('td', { class: 'num muted' }, S.hasPrev ? fmt(r.prev) : '–'),
+          h('td', { class: 'num muted' }, r.prev === null ? '–' : fmt(r.prev)),
           h('td', { class: 'num' }, diffEl(r.diff))))))),
       rows.length > 15 ? h('div', { class: 'controls', style: 'margin:10px 0 0' },
         h('button', { class: 'btn', type: 'button', onclick: () => { st.all = !st.all; ctx.rerender(); } }, st.all ? '上位15件だけ表示' : `すべて表示(${rows.length}件)`)) : null,
-      h('p', { class: 'small muted' }, '構成比は、表示している経費の合計に対する割合です(青は固定費、オレンジは変動費)。前年との差の赤は前年より増えた額、緑は減った額です。項目の名前が前年と違うと、前年の欄に入らず、増えたように見えることがあります(例: 名前を変えた広告費)。')));
+      h('p', { class: 'small muted' }, '構成比は、表示している経費の合計に対する割合です(青は固定費、オレンジは変動費)。前年との差の赤は前年より増えた額、緑は減った額です。前年のシートに同じ名前の項目がない場合(今年から始めた項目など)は、前年との比較は出しません(「–」)。' + (S.newCount ? ` 今年から出てきた項目が${S.newCount}件あります。` : ''))));
 }
 
 // ---- (3) 経費の推移(月ごとの上がり下がり) --------------------------

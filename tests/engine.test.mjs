@@ -308,7 +308,7 @@ test('経費の見直し: 項目ごとの合計・構成比・前年同期との
   assert.equal(gas.total, 70);
   assert.equal(gas.prev, 40);
   assert.equal(gas.diff, 30);
-  assert.equal(S.rows.find((r) => r.name === '飲食費').total, 0);   // 今年は0でも、前年にあるので一覧には残る
+  assert.equal(S.rows.find((r) => r.name === '飲食費'), undefined);   // 今年の金額が0の項目は一覧に出さない
   assert.equal(S.total, 400 + 70);
   assert.equal(S.fixed, 400);
   assert.equal(S.variable, 70);
@@ -320,4 +320,111 @@ test('経費の見直し: 月の平均・多い月・少ない月・前年の平
   assert.deepEqual([x.max.month, x.max.value, x.min.month, x.min.value], [3, 30, 2, 10]);   // 同じ最少 10 は最初の月(2月)
   assert.equal(x.prevAvg, 10);
   assert.deepEqual(E.expenseNames(spendData(), [], 2025), ['家賃', 'ガソリン代', '飲食費']);
+});
+
+test('経費の見直し: 前年にない項目は比べない(前年・差は null)。固定↔変動を移した項目は比べる', () => {
+  const d = spendData();
+  d.年間収支[2026].splice(8, 0, gridRow(null, 'チラシ', pad12([50, 50, 50, 50])));        // 前年にない項目(変動)
+  d.年間収支[2026][6][0] = null;                                                          // 2026年はガソリン代が「固定」の下に入る(前年は変動)
+  const S = E.expenseSummary(d, [], 2026, 4);
+  const flyer = S.rows.find((r) => r.name === 'チラシ');
+  assert.equal(flyer.total, 200);
+  assert.equal(flyer.prev, null);
+  assert.equal(flyer.diff, null);
+  assert.equal(S.newCount >= 1, true);
+  assert.equal(S.cmpTotal, S.rows.filter((r) => r.prev !== null).reduce((t, r) => t + r.total, 0));
+  assert.equal(S.cmpTotal + 200 <= S.total, true);
+  const gas = S.rows.find((r) => r.name === 'ガソリン代');
+  assert.equal(gas.group, '固定');
+  assert.equal(gas.prev, 40);                 // 前年は変動だったが、名前が同じなので比べる
+});
+test('着工: 着工月ごとの担当別集計と、着工予定・着工日なしの拾い出し', () => {
+  const mk = (o) => ({ 契約日: '2026-01-10', '契約金額(万円)': 110, '粗利(万円・手入力)': 40, 担当C: 'ア', 集客経路: '訪問', ...o });
+  const data = { 顧客: [mk({ 顧客名: 'a', 着工日: '2026-02-05' }), mk({ 顧客名: 'b', 着工日: '2026-02-20', 集客経路: '追加' }), mk({ 顧客名: 'c', 着工日: '2026-10-05' }), mk({ 顧客名: 'd' }), mk({ 顧客名: 'e', 契約日: '2025-12-01', 着工日: '2026-01-15' })] };
+  const cu = E.enrichAll(data);
+  const pm = E.personMonthly(cu, 2026, '着工日');
+  assert.equal(pm.rows[1].all.sales, 220);       // 2月着工の売上(追加も売上には入る)
+  assert.equal(pm.rows[1].all.count, 1);         // 追加は本数に数えない
+  assert.equal(pm.rows[0].all.count, 1);         // 契約は2025年でも、着工が2026年1月なら1月
+  assert.equal(pm.total.all.gross, 40 * 4);      // 着工日のある4件(dは着工日なし)
+  const bl = E.startBacklog(cu, '2026-09-21');
+  assert.deepEqual(bl.scheduled.map((r) => r.name), ['c']);
+  assert.deepEqual(bl.none.map((r) => r.name), ['d']);
+  assert.equal(bl.scheduledSales, 110);
+  assert.deepEqual(E.startYears(cu), [2026]);
+});
+
+test('粗利の列: 見出しが「予想粗利」などに変わっていても拾う。「56万」のような文字も数える', () => {
+  assert.equal(E.enrichCustomer({ 契約日: '2026-01-10', '契約金額(万円)': 100, '粗利(万円・手入力)': 30 })._gross, 30);
+  assert.equal(E.enrichCustomer({ 契約日: '2026-01-10', '契約金額(万円)': 100, 予想粗利: '56万' })._gross, 56);
+  assert.equal(E.enrichCustomer({ 契約日: '2026-01-10', '契約金額(万円)': 100, '予想粗利(万円)': '1,200' })._gross, 1200);
+  assert.equal(E.enrichCustomer({ 契約日: '2026-01-10', '契約金額(万円)': 100 })._gross, 0);
+});
+
+test('今いる担当者: 最新の契約年に契約がある人だけ。設定で上書きできる。集客分析・インセンの選択肢に使う', () => {
+  const custs = E.enrichAll({
+    顧客: [
+      { 契約日: '2025-03-01', '契約金額(万円)': 100, 担当C: '辞めた', 入金日: '2025-05-01' },
+      { 契約日: '2026-02-01', '契約金額(万円)': 100, 担当C: '甲', 入金日: '2026-03-10' },
+      { 契約日: '2026-02-11', '契約金額(万円)': 200, 担当C: '乙', 担当A: '甲', 入金日: '2026-03-15' },
+    ],
+  });
+  assert.deepEqual(E.activePersons({}, custs).sort(), ['乙', '甲']);
+  assert.deepEqual(E.activePersons({ 設定: [{ 項目: '現役の担当', '値(入力)': '乙' }] }, custs), ['乙']);
+  const lines = E.incentiveLines({}, custs.map((c) => ({ ...c, 顧客名: 'x' + c['契約日'] })));
+  assert.deepEqual(E.incentivePersons({}, lines, custs).sort(), ['乙', '甲']); // 辞めた人は出ない
+  assert.deepEqual(E.incentivePersons({ 設定: [{ 項目: 'インセン対象', '値(入力)': '乙' }] }, lines, custs), ['乙']);
+  assert.deepEqual(E.incentivePersons({ 設定: [{ 項目: 'インセン対象外の担当', '値(入力)': '甲' }] }, lines, custs), ['乙']);
+});
+
+test('売上ボード: 累計・本数・PH(月平均)。月数は今月まで、担当の入った月から', () => {
+  const mk = (d, sales, gross, C, A, extra = {}) => ({ 契約日: d, 顧客名: d + C, '契約金額(万円)': sales, '粗利(万円・手入力)': gross, 担当C: C, 担当A: A, ...extra });
+  const data = { 顧客: [
+    mk('2025-04-10', 100, 30, '甲'), mk('2025-05-10', 200, 60, '甲'),
+    mk('2026-01-10', 100, 30, '甲'), mk('2026-02-10', 200, 60, '甲'), mk('2026-02-20', 50, 10, '乙'), mk('2026-03-05', 40, 8, '乙', undefined, { 集客経路: '追加' }),
+  ] };
+  const custs = E.enrichAll(data);
+  const b = E.salesBoard(data, custs, 2026, { today: '2026-04-15', persons: ['甲', '乙'] });
+  const kou = b.blocks.find((x) => x.name === '甲'), otsu = b.blocks.find((x) => x.name === '乙'), all = b.blocks.find((x) => x.name === null);
+  assert.equal(b.endM, 4);
+  assert.deepEqual(kou.months.slice(0, 4).map((m) => m.cumSales), [100, 300, 300, 300]);
+  assert.deepEqual(kou.months.slice(0, 4).map((m) => m.count), [1, 1, 0, 0]);
+  assert.equal(kou.months[4].future, true);
+  assert.equal(kou.months[4].cumSales, null);
+  assert.equal(kou.total.sales, 300);
+  assert.equal(kou.ph.months, 4); assert.equal(kou.ph.sales, 75); // 甲は前の年からいるので1月から4か月
+  assert.equal(otsu.ph.months, 3); // 乙の最初の契約は2026-02 → 2〜4月の3か月
+  assert.equal(otsu.total.sales, 90); assert.equal(otsu.total.count, 1); // 追加工事は売上には入るが本数に数えない
+  assert.equal(otsu.ph.sales, 30);
+  assert.equal(all.ph.months, 4); // 全体は会社の最初の契約(2025-04)から → 2026年は1月から
+  assert.equal(all.total.sales, 390); assert.equal(all.total.count, 3);
+  assert.equal(all.months[2].cumCount, 3); // 3月までの累計本数(1月1・2月2。3月は追加工事なので数えない)
+  // 担当の開始月を設定で決める
+  const d2 = { ...data, 設定: [{ 項目: '担当の開始月', '値(入力)': '乙=2026-01' }] };
+  assert.equal(E.salesBoard(d2, custs, 2026, { today: '2026-04-15', persons: ['乙'] }).blocks[0].ph.months, 4);
+  // 前の年: 甲は4月から、12月まで(2025年は4〜12月の9か月)
+  const y25 = E.salesBoard(data, custs, 2025, { today: '2026-04-15', persons: ['甲'] }).blocks[0];
+  assert.equal(y25.ph.months, 9); assert.equal(y25.total.sales, 300);
+});
+
+test('ポータル: 番手×紹介数の成約率(結果待ちは分母に入れない・空欄は数えない)', () => {
+  const P = (n, k, r, extra = {}) => ({ 区分: 'ポータル', 反響日: '2026-03-01', 担当: 'A', 紹介数: n, 番手: k, 結果: r, ...extra });
+  const leads = [
+    P(3, 1, '成約'), P(3, 1, '不成約'), P(3, 1, '成約'), P(3, 2, '不成約'), P(3, 2, '見積り待ち'), P('3社', '1番手', '成約'),
+    P(2, 1, '成約'), P(2, 2, '不成約'),
+    P(null, null, '成約'), // 空欄
+    { 区分: '自社', 反響日: '2026-03-01', 紹介数: 3, 番手: 1, 結果: '成約' }, // ポータル以外は見ない
+    P(3, 1, '成約', { 反響日: '2025-03-01' }),
+  ];
+  const ps = E.portalSlots(leads, { year: 2026 });
+  assert.deepEqual(ps.counts, [2, 3]); assert.deepEqual(ps.ranks, [1, 2]);
+  assert.equal(ps.missing, 1); assert.equal(ps.entered, 8);
+  const g1 = ps.grid[0]; // 1番手
+  assert.equal(g1.cells[1].win, 3); assert.equal(g1.cells[1].lose, 1); assert.equal(g1.cells[1].rate, 0.75);
+  const g2 = ps.grid[1];
+  assert.equal(g2.cells[1].rate, 0); assert.equal(g2.cells[1].pending, 1); // 見積り待ちは分母に入れない
+  assert.equal(g1.total.rate, 4 / 5);
+  assert.equal(ps.byCount[0].rate, 0.5);
+  assert.equal(E.portalSlots(leads, { year: 2025 }).all.win, 1);
+  assert.equal(E.portalSlots(leads, { year: 2026, person: 'B' }).entered, 0);
 });
