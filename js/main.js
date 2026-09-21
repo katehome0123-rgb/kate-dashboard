@@ -10,6 +10,7 @@ import * as profit from './screens/profit.js';
 import * as cash from './screens/cash.js';
 import * as maint from './screens/maint.js';
 import * as incentive from './screens/incentive.js';
+import * as annual from './screens/annual.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -19,6 +20,7 @@ const ICON = {
   profit: 'M3 17l6-6 4 4 8-9m0 0h-5m5 0v5',
   maint: 'M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.5 2.5-2.2-.6-.6-2.2z',
   incentive: 'M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3',
+  annual: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4M8 14h3m2 0h3m-8 3h3',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
 };
 const ROUTES = [
@@ -29,6 +31,7 @@ const ROUTES = [
   { id: 'profit', label: '利益率', mod: profit },
   { id: 'cash', label: '入出金', mod: cash },
   { id: 'incentive', label: 'インセン', mod: incentive },
+  { id: 'annual', label: '年間収支', mod: annual },
 ];
 const root = document.getElementById('root');
 const ctx = { data: null, custs: [], state: { year: null, aYear: 0, person: '', alertAll: {} }, loadedAt: null, rerender: () => draw() };

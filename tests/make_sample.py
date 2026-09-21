@@ -71,5 +71,26 @@ ledger.sort(key=lambda r: r['日付'])
 # インセン調整の見本: 直近に入金があった案件の担当Cの金額を上書きする
 paid = sorted([c for c in custs if c.get('入金日') and c.get('担当C')], key=lambda c: c['入金日'])
 adj = [{'顧客名': paid[-1]['顧客名'], '対象(クロ/アポ)': 'クロ', '上書きする金額(円)': 50000, '理由': '特別対応のため'}] if paid else []
-json.dump({'反響': leads, '顧客': custs, '入出金': ledger, '年間収支': [], '経費データ': [], 'チラシ折込': [], '職人マスター': [], '設定': [{'項目': 'メンテ確認の開始日', '値(入力)': '2026-01-01'}, {'項目': '案件アラートの対象期間', '値(入力)': 60}, {'項目': 'ポータルのキャンセル確認日数', '値(入力)': 6}, {'項目': 'ポータルのキャンセル期限日数', '値(入力)': 7}, {'項目': '見積り忘れの確認日数', '値(入力)': 7}], 'インセン調整': adj}, open('data/sample.json','w',encoding='utf-8'), ensure_ascii=False)
+# 年間収支の見本(年別シートと同じ升目。金額はすべて架空)
+def year_grid(y):
+    rg = random.Random(y)
+    months = list(range(1, 13))
+    hdr = [f'{y}年', None, None] + [f'{m}月' for m in months] + ['合計']
+    def row(a, b, vals): return [a, b, None] + vals + [None]
+    sales = [round(sum(c['契約金額(万円)'] for c in custs if c['契約日'].startswith(f'{y}-{m:02d}')) * 10000, -4) or None for m in months]
+    paid = [round(rg.uniform(1.0, 4.5), 1) * 1000000 if sales[m-1] else None for m in months]
+    inc = [round(rg.uniform(2.0, 9.0), 1) * 1000000 if sales[m-1] else None for m in months]
+    g = [[hdr], [row('売上高', None, sales)], [row('現場支払', None, paid)], [row('入金', None, inc)],
+         [row('粗利益', None, [((inc[i] or 0) - (paid[i] or 0)) for i in range(12)])]]
+    fixed = [('役員報酬', 600000), ('人件費', 300000), ('家賃', 90000), ('保険・年金', 250000), ('広告費A', 120000), ('広告費B', 60000), ('ソフト利用料', 9000)]
+    var = [('ガソリン代', 30000), ('駐車場代', 20000), ('備品代', 35000), ('その他', 15000)]
+    rows = [row('固定' if i == 0 else None, n, [v if (y < 2026 or m <= 12) else None for m in months]) for i, (n, v) in enumerate(fixed)]
+    rows += [row('変動' if i == 0 else None, n, [round(v * rg.uniform(0.6, 1.4), -2) if (y < 2026 or m <= 9) else 0 for m in months]) for i, (n, v) in enumerate(var)]
+    tot = [sum((r[3 + i] or 0) for r in rows) for i in range(12)]
+    rows.append(row(None, '合計', tot))
+    net = [g[4][0][3 + i] - tot[i] for i in range(12)]
+    rows.append(row('純利益', None, net))
+    return [r for grp in g for r in grp] + rows
+year_sheets = {'2025': year_grid(2025), '2026': year_grid(2026)}
+json.dump({'反響': leads, '顧客': custs, '入出金': ledger, '年間収支': year_sheets, '経費データ': [], 'チラシ折込': [], '職人マスター': [], '設定': [{'項目': '年間収支の切替月', '値(入力)': '2026-08'}, {'項目': 'メンテ確認の開始日', '値(入力)': '2026-01-01'}, {'項目': '案件アラートの対象期間', '値(入力)': 60}, {'項目': 'ポータルのキャンセル確認日数', '値(入力)': 6}, {'項目': 'ポータルのキャンセル期限日数', '値(入力)': 7}, {'項目': '見積り忘れの確認日数', '値(入力)': 7}], 'インセン調整': adj}, open('data/sample.json','w',encoding='utf-8'), ensure_ascii=False)
 print(len(leads), len(custs))

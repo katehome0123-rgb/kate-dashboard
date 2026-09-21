@@ -424,3 +424,79 @@ export function incentiveMonths(lines, person) {
   }
   return [...m.values()].sort((a, b) => b.month.localeCompare(a.month));
 }
+
+// ---- 年間収支 ----------------------------------------------------
+// 年別シート(2024・2025…)の升目を、行の見出し(A列・B列)で読む。年によって行の位置が違うため、位置ではなく名前で探す。
+//   売上高 / 現場支払 / 入金 / 粗利益 / 固定(項目…) / 変動(項目…) / 合計 / 純利益 / 設備費(項目…) / 合計
+// 売上高 = 契約月の合計(顧客シートから自動・税込)。
+// 入金・現場支払 = 切替月より前は年別シートの入力値(通帳ベース)、切替月以降は「入出金」シートの日付ベース。切替月が空欄なら全期間、入力値。
+// 粗利益 = 入金 − 現場支払。純利益 = 粗利益 − 固定・変動の合計 − 設備費の合計。
+// 古い形式の年(合計の行が項目の合計と合わない)は、シートの「純利益」の行の値をそのまま出す。
+const monthIndexOf = (grid) => {
+  const i = (grid[0] || []).findIndex((v) => String(v).trim() === '1月');
+  return i >= 0 ? i : 3;
+};
+export function annualBook(data, custs, year) {
+  const grid = (data['年間収支'] || {})[String(year)];
+  if (!Array.isArray(grid) || !grid.length) return null;
+  const c0 = monthIndexOf(grid);
+  const A = (r) => String((grid[r] || [])[0] ?? '').trim();
+  const B = (r) => String((grid[r] || [])[1] ?? '').trim();
+  const vals = (r) => Array.from({ length: 12 }, (_, m) => num((grid[r] || [])[c0 + m]));
+  const has = (r) => Array.from({ length: 12 }, (_, m) => (grid[r] || [])[c0 + m]).some((v) => v !== null && v !== undefined && v !== '' && num(v) !== 0);
+  const rowA = (name) => grid.findIndex((_, r) => r > 0 && A(r) === name);
+  const rPaid = rowA('現場支払'), rIn = rowA('入金'), rNet = rowA('純利益'), rCap = rowA('設備費');
+
+  // 固定・変動の項目
+  const items = [];
+  let group = '', totalRow = -1;
+  const startRow = Math.max(rowA('粗利益'), rIn) + 1;
+  for (let r = startRow; r < grid.length && r !== rNet; r++) {
+    if (A(r) === '固定' || A(r) === '変動') group = A(r);
+    if (!group) continue;
+    const name = B(r);
+    if (name === '合計') { totalRow = r; continue; }
+    if (name || has(r)) items.push({ group, name: name || group, values: vals(r) });
+  }
+  // 設備費の項目
+  const capex = [];
+  if (rCap >= 0) {
+    for (let r = rCap; r < grid.length; r++) {
+      if (B(r) === '合計') break;
+      const nm = B(r);
+      if (nm || has(r)) capex.push({ group: '設備費', name: nm || '設備費', values: vals(r) });
+    }
+  }
+  const sumItems = (list, m) => list.reduce((s, it) => s + it.values[m], 0);
+  const sheetTotal = totalRow >= 0 ? vals(totalRow) : null;
+  const standard = !!sheetTotal && sheetTotal.every((t, m) => Math.abs(t - sumItems(items, m)) < 2);
+
+  // 売上高(契約月・税込・円)
+  const sales = monthlySummary(custs, year).map((r) => r.sales * 10000);
+  // 入出金シートの月別
+  const ledgerIn = Array(12).fill(0), ledgerOut = Array(12).fill(0);
+  for (const r of data['入出金'] || []) {
+    const d = String(r['日付'] || '');
+    if (!d || Number(d.slice(0, 4)) !== year) continue;
+    const m = Number(d.slice(5, 7)) - 1;
+    if (r['種別'] === '入金') ledgerIn[m] += num(r['金額(円)']);
+    else if (r['種別'] === '出金') ledgerOut[m] += num(r['金額(円)']);
+  }
+  const switchYm = settingValue(data, '年間収支の切替月').slice(0, 7);
+  const typedIn = vals(rIn), typedPaid = vals(rPaid), typedNet = rNet >= 0 ? vals(rNet) : null;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const months = Array.from({ length: 12 }, (_, m) => {
+    const ym = `${year}-${pad2(m + 1)}`;
+    const fromLedger = !!switchYm && ym >= switchYm;
+    const income = fromLedger ? ledgerIn[m] : typedIn[m];
+    const paid = fromLedger ? ledgerOut[m] : typedPaid[m];
+    const gross = income - paid;
+    const fixed = sumItems(items.filter((i) => i.group === '固定'), m);
+    const variable = sumItems(items.filter((i) => i.group === '変動'), m);
+    const cap = sumItems(capex, m);
+    const net = standard || !typedNet ? gross - fixed - variable - cap : typedNet[m];
+    return { month: m + 1, ym, fromLedger, sales: sales[m], income, paid, gross, fixed, variable, cap, net };
+  });
+  const total = (key, upto = 12) => months.slice(0, upto).reduce((s, x) => s + x[key], 0);
+  return { year, months, items, capex, standard, switchYm, total };
+}

@@ -236,3 +236,51 @@ test('利益率の担当別: クロ40%:アポ60%の重みで数え、件数は�
   assert.equal(i.count, 1);
   assert.equal(Math.round(i.rate * 100), 50);
 });
+
+// ---- 年間収支(架空の数字) ----
+const gridRow = (a, b, vals) => [a, b, null, ...vals, null];
+const pad12 = (first) => [...first, ...Array(12 - first.length).fill(null)];
+const annualData = (extra = {}) => ({
+  顧客: [{ 契約日: '2026-01-10', '契約金額(万円)': 110, 顧客名: 'a', 担当C: 'ア', 集客経路: '訪問' }],
+  年間収支: { 2026: [
+    ['2026年', null, null, '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '合計'],
+    gridRow('売上高', null, pad12([999])), gridRow('現場支払', null, pad12([300, 400])), gridRow('入金', null, pad12([1000, 900])),
+    gridRow('粗利益', null, pad12([700, 500])),
+    gridRow('固定', '家賃', pad12([100, 100])), gridRow(null, '広告', pad12([50, 50])),
+    gridRow('変動', 'ガソリン', pad12([10, 20])), gridRow(null, '合計', pad12([160, 170])),
+    gridRow('純利益', null, pad12([540, 330])),
+    gridRow('設備費', '事務所', pad12([20])), gridRow(null, '合計', pad12([20])),
+  ] },
+  入出金: [{ 日付: '2026-02-05', 種別: '入金', 金額: 0, '金額(円)': 5000 }, { 日付: '2026-02-20', 種別: '出金', '金額(円)': 1200 }],
+  設定: [], ...extra,
+});
+test('年間収支: 売上高は契約月の自動集計。粗利益 = 入金 − 現場支払、純利益 = 粗利益 − 固定 − 変動 − 設備費', () => {
+  const d = annualData();
+  const b = E.annualBook(d, E.enrichAll(d), 2026);
+  assert.equal(b.standard, true);
+  assert.equal(b.months[0].sales, 1100000);           // シートの 999 ではなく顧客シートから
+  assert.equal(b.months[0].gross, 700);
+  assert.equal(b.months[0].fixed, 150);
+  assert.equal(b.months[0].variable, 10);
+  assert.equal(b.months[0].net, 700 - 150 - 10 - 20);
+  assert.equal(b.months[1].net, 500 - 150 - 20);
+  assert.deepEqual(b.items.map((i) => [i.group, i.name]), [['固定', '家賃'], ['固定', '広告'], ['変動', 'ガソリン']]);
+  assert.equal(b.total('net', 2), 520 + 330);
+});
+test('年間収支: 切替月からは入出金シートの日付ベース', () => {
+  const d = annualData({ 設定: [{ 項目: '年間収支の切替月', '値(入力)': '2026-02' }] });
+  const b = E.annualBook(d, E.enrichAll(d), 2026);
+  assert.equal(b.months[0].income, 1000);              // 1月は年別シートの入力値
+  assert.equal(b.months[1].income, 5000);              // 2月は入出金シート
+  assert.equal(b.months[1].paid, 1200);
+  assert.equal(b.months[1].fromLedger, true);
+  assert.equal(b.months[2].income, 0);                 // 3月以降も入出金(記録なし=0)
+});
+test('年間収支: 合計の行が項目の合計と合わない古い形式は、シートの純利益をそのまま使う', () => {
+  const d = annualData();
+  d.年間収支[2026][8] = gridRow(null, '合計', pad12([0, 0]));
+  const b = E.annualBook(d, E.enrichAll(d), 2026);
+  assert.equal(b.standard, false);
+  assert.equal(b.months[0].net, 540);
+  assert.equal(E.annualBook(d, E.enrichAll(d), 2030), null);
+});
