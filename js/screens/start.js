@@ -36,7 +36,7 @@ export function render(ctx) {
       h('div', { class: 'sub' }, '着工月ごとの、担当別の売上・粗利・着工本数(売上・粗利は万円)。契約月の見方は「売上」タブです'))),
     h('div', { class: 'grid' },
       kpi('これから着工する契約', bl.scheduled.length, '件', `契約金額 ${man(bl.scheduledSales)}万円 / 予想粗利 ${man(bl.scheduledGross)}万円`),
-      kpi('着工日が未入力の契約', bl.none.length, '件', bl.none.length ? `契約金額 ${man(bl.noneSales)}万円 / 予想粗利 ${man(bl.noneGross)}万円` : 'なし')),
+      bl.none.length ? kpi('着工日が未入力の契約', bl.none.length, '件', `契約金額 ${man(bl.noneSales)}万円 / 予想粗利 ${man(bl.noneGross)}万円`) : null),
     h('div', { class: 'controls', style: 'margin-top:16px' },
       years.length ? segmented(years.map((y) => ({ value: y, label: `${y}年` })), st.year, (v) => { st.year = v; ctx.rerender(); }, '年') : null),
     years.length ? h('div', { class: 'card' }, personTable(pm, { monthLabel: '着工月', countLabel: '着工数' }),

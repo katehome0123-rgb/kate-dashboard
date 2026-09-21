@@ -1,3 +1,4 @@
+import { CONFIG } from '../config.js';
 import { h } from '../ui.js';
 import * as E from '../engine.js';
 import { incentivePdfBlob, downloadBlob } from '../pdf.js';
@@ -10,7 +11,7 @@ const dateLabel = (d) => (d ? `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))
 export function render(ctx) {
   const st = (ctx.state.inc ||= { person: '', month: '' });
   const lines = E.incentiveLines(ctx.data, ctx.custs);
-  const persons = E.incentivePersons(ctx.data, lines, ctx.custs);
+  const persons = E.incentivePersons(ctx.data, lines, ctx.custs, CONFIG.INCENTIVE_PERSONS || []);
   if (!persons.includes(st.person)) { st.person = persons[0] || ''; st.month = ''; }
   const months = E.incentiveMonths(lines, st.person);
   if (!months.some((m) => m.month === st.month)) st.month = months[0] ? months[0].month : '';

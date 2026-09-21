@@ -426,17 +426,23 @@ export function incentiveLines(data, custs) {
 }
 // インセンの担当者の選択肢: 今いる担当者のうち、設定シートの「インセン対象」(カンマ区切り)があればその人だけ。
 // 「インセン対象外の担当」(カンマ区切り)に書いた名前は外す。
-export function incentivePersons(data, lines, custs = null) {
+export function incentivePersons(data, lines, custs = null, fallbackOnly = []) {
   const list = (k) => settingValue(data, k).split(/[,、，\s]+/).filter(Boolean);
-  const only = list('インセン対象'), skip = new Set(list('インセン対象外の担当'));
+  const skip = new Set(list('インセン対象外の担当'));
   const active = custs ? new Set(activePersons(data, custs)) : null;
-  const m = new Map();
-  for (const l of lines) {
-    if (skip.has(l.person)) continue;
-    if (only.length ? !only.includes(l.person) : (active && !active.has(l.person))) continue;
-    m.set(l.person, (m.get(l.person) || 0) + 1);
-  }
-  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  const pick = (only) => {
+    const m = new Map();
+    for (const l of lines) {
+      if (skip.has(l.person)) continue;
+      if (only.length ? !only.includes(l.person) : (active && !active.has(l.person))) continue;
+      m.set(l.person, (m.get(l.person) || 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+  };
+  const explicit = list('インセン対象'); // 設定シートに書いてあれば、それを必ず優先
+  if (explicit.length) return pick(explicit);
+  const r = pick(fallbackOnly); // アプリ側の既定(config.js)。該当する人がいなければ、今いる担当者を全員出す
+  return r.length || !fallbackOnly.length ? r : pick([]);
 }
 // 担当者ごとの月別の合計(新しい月が先)
 export function incentiveMonths(lines, person) {
@@ -663,4 +669,22 @@ export function portalSlots(leads, { year = null, person = '' } = {}) {
     grid: ranks.map((k) => ({ rank: k, cells: counts.map((n) => cell(n, k)), total: cell(undefined, k) })),
     byCount: counts.map((n) => ({ n, ...cell(n, undefined) })),
   };
+}
+
+
+// ---- 割合(集客経路ごとの契約件数・売上のシェア) ----------------------------------
+// 追加工事と下請け(MIRAI)は集客ではないので、件数にも売上にも入れない。year=null は累計。
+// by='route' は集客経路そのまま、by='group' は媒体グループ(訪問・ポータル・チラシ…)にまとめる。
+export function routeShare(custs, { year = null, by = 'route' } = {}) {
+  const pool = custs.filter((c) => c._count && c['契約日'] && (!year || c._year === year));
+  const m = new Map();
+  for (const c of pool) {
+    const key = by === 'group' ? mediaGroup(c['集客経路']) : (String(c['集客経路'] || '').trim() || '(不明)');
+    const x = m.get(key) || { name: key, count: 0, sales: 0 };
+    x.count += 1; x.sales += c._sales;
+    m.set(key, x);
+  }
+  const rows = [...m.values()].sort((a, b) => b.count - a.count || b.sales - a.sales);
+  const total = { count: rows.reduce((t, r) => t + r.count, 0), sales: rows.reduce((t, r) => t + r.sales, 0) };
+  return { rows: rows.map((r) => ({ ...r, shareCount: total.count ? r.count / total.count : 0, shareSales: total.sales ? r.sales / total.sales : 0 })), total };
 }

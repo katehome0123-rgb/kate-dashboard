@@ -11,7 +11,7 @@ async def main():
             page.on('pageerror', lambda e: errs.append(str(e)))
             page.on('console', lambda m: errs.append(m.text) if m.type == 'error' else None)
             await page.route('**/accounts.google.com/**', lambda r: r.abort())
-            for route in ['home', 'sales', 'analysis', 'profit', 'cash', 'maint', 'incentive', 'annual', 'start']:
+            for route in ['home', 'sales', 'analysis', 'profit', 'cash', 'maint', 'incentive', 'annual', 'start', 'ratio']:
                 await page.goto(f'http://localhost:8765/?demo=1#/{route}')
                 await page.wait_for_selector('.main')
                 await page.wait_for_timeout(500)

@@ -428,3 +428,32 @@ test('ポータル: 番手×紹介数の成約率(結果待ちは分母に入れ
   assert.equal(E.portalSlots(leads, { year: 2025 }).all.win, 1);
   assert.equal(E.portalSlots(leads, { year: 2026, person: 'B' }).entered, 0);
 });
+
+test('インセンの担当: config の既定(塩野だけ)。設定シートが優先。該当者がいなければ全員', () => {
+  const custs = E.enrichAll({ 顧客: [
+    { 契約日: '2026-02-01', '契約金額(万円)': 100, 担当C: '甲', 入金日: '2026-03-10', 顧客名: 'a' },
+    { 契約日: '2026-02-11', '契約金額(万円)': 200, 担当C: '甲', 担当A: '乙', 入金日: '2026-03-15', 顧客名: 'b' },
+  ] });
+  const lines = E.incentiveLines({}, custs);
+  assert.deepEqual(E.incentivePersons({}, lines, custs, ['乙']), ['乙']);
+  assert.deepEqual(E.incentivePersons({ 設定: [{ 項目: 'インセン対象', '値(入力)': '甲' }] }, lines, custs, ['乙']), ['甲']);
+  assert.deepEqual(E.incentivePersons({}, lines, custs, ['丙']).sort(), ['乙', '甲']);
+  assert.deepEqual(E.incentivePersons({}, lines, custs, []).sort(), ['乙', '甲']);
+});
+
+test('割合: 追加・下請けを除いた契約件数のシェア(累計・年・まとめ)', () => {
+  const mk = (d, route, sales, name = d + route) => ({ 契約日: d, 顧客名: name, 集客経路: route, '契約金額(万円)': sales });
+  const custs = E.enrichAll({ 顧客: [
+    mk('2025-01-01', 'ヌリカエ', 100), mk('2025-02-01', 'ヌリカエ', 100, 'b'), mk('2025-03-01', '訪問', 200),
+    mk('2026-01-01', '訪問', 300), mk('2026-02-01', '追加', 500), mk('2026-03-01', 'MIRAI', 50), mk('2026-04-01', '窓口', 100, 'c'),
+  ] });
+  const all = E.routeShare(custs);
+  assert.equal(all.total.count, 5);
+  assert.deepEqual(all.rows.map((r) => [r.name, r.count]), [['訪問', 2], ['ヌリカエ', 2], ['窓口', 1]]);
+  assert.equal(all.rows[0].shareCount, 0.4);
+  assert.equal(all.total.sales, 800);
+  const y26 = E.routeShare(custs, { year: 2026 });
+  assert.equal(y26.total.count, 2);
+  const g = E.routeShare(custs, { by: 'group' });
+  assert.equal(g.rows.find((r) => r.name === 'ポータル').count, 3); // ヌリカエ2+窓口1
+});
