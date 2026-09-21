@@ -123,39 +123,6 @@ export function barChart({ labels, series, unit = '万円', height = 240, toolti
 }
 
 // 横棒つきの数字セル(成約率など)
-// ドーナツ(割合グラフ)。items=[{name, value, color, tip:[[ラベル, 値],…]}]。真ん中に合計を出す。
-export function donut({ items, centerTop, centerBottom, size = 240 }) {
-  const total = items.reduce((t, x) => t + x.value, 0);
-  const R = size / 2, r = R * 0.62, gap = items.length > 1 ? 0.012 : 0;
-  const svg = s('svg', { viewBox: `0 0 ${size} ${size}`, class: 'donut', role: 'img', 'aria-label': '割合のグラフ: ' + items.map((x) => x.name).join('・') });
-  const pt = (rad, a) => [R + rad * Math.sin(a), R - rad * Math.cos(a)];
-  let a0 = 0;
-  for (const it of items) {
-    if (!(it.value > 0) || !total) continue;
-    const frac = it.value / total;
-    const a1 = a0 + frac * 2 * Math.PI;
-    const g = Math.min(gap * 2 * Math.PI, (a1 - a0) / 3);
-    const [s0, s1] = [a0 + g / 2, a1 - g / 2];
-    const large = s1 - s0 > Math.PI ? 1 : 0;
-    let d;
-    if (frac > 0.9999) d = `M ${R} 0 A ${R} ${R} 0 1 1 ${R - 0.01} 0 L ${R - 0.01} ${R - r} A ${r} ${r} 0 1 0 ${R} ${R - r} Z`;
-    else {
-      const [x0, y0] = pt(R, s0), [x1, y1] = pt(R, s1), [x2, y2] = pt(r, s1), [x3, y3] = pt(r, s0);
-      d = `M ${x0} ${y0} A ${R} ${R} 0 ${large} 1 ${x1} ${y1} L ${x2} ${y2} A ${r} ${r} 0 ${large} 0 ${x3} ${y3} Z`;
-    }
-    const path = s('path', { d, fill: it.color, 'fill-rule': 'evenodd', tabindex: 0, 'aria-label': `${it.name} ${(frac * 100).toFixed(1)}%` });
-    const on = (e) => showTip(e.touches ? e.touches[0] : e, it.name, it.tip || []);
-    path.addEventListener('mousemove', on); path.addEventListener('mouseleave', hideTip);
-    path.addEventListener('click', on); path.addEventListener('blur', hideTip);
-    svg.append(path);
-    a0 = a1;
-  }
-  const t1 = s('text', { x: R, y: R - 2, 'text-anchor': 'middle', class: 'dtop' }, centerTop || '');
-  const t2 = s('text', { x: R, y: R + 20, 'text-anchor': 'middle', class: 'dbot' }, centerBottom || '');
-  svg.append(t1, t2);
-  return svg;
-}
-
 export function barCell(ratio, text, slot = 1) {
   const track = h('span', { class: 'track' }, ratio === null ? null
     : h('span', { class: 'bar', style: `width:${Math.max(0, Math.min(1, ratio)) * 100}%;background:var(--s${slot})` }));

@@ -452,8 +452,60 @@ test('割合: 追加・下請けを除いた契約件数のシェア(累計・�
   assert.deepEqual(all.rows.map((r) => [r.name, r.count]), [['訪問', 2], ['ヌリカエ', 2], ['窓口', 1]]);
   assert.equal(all.rows[0].shareCount, 0.4);
   assert.equal(all.total.sales, 800);
+  assert.equal(all.total.doneCount, 0); assert.equal(all.rows[0].rate, null); // 完工日がないので利益率は出さない
   const y26 = E.routeShare(custs, { year: 2026 });
   assert.equal(y26.total.count, 2);
   const g = E.routeShare(custs, { by: 'group' });
   assert.equal(g.rows.find((r) => r.name === 'ポータル').count, 3); // ヌリカエ2+窓口1
+});
+
+test('割合: 利益・利益率は完工日がある案件だけで計算(着地利益 ÷ 税抜売上)', () => {
+  const mk = (route, sales, extra) => ({ 契約日: '2026-01-10', 顧客名: route + sales, 集客経路: route, '契約金額(万円)': sales, ...extra });
+  const custs = E.enrichAll({ 顧客: [
+    mk('訪問', 110, { 完工日: '2026-03-01', 材料費: 300000 }), // 税抜100万 − 経費30万 = 利益70万
+    mk('訪問', 220, { 完工日: '2026-03-02', 材料費: 500000 }), // 税抜200万 − 50万 = 150万
+    mk('訪問', 330), // 完工日なし → 利益率の計算に入れない(件数には数える)
+    mk('追加', 110, { 完工日: '2026-03-01' }),
+  ] });
+  const r = E.routeShare(custs);
+  const h = r.rows[0];
+  assert.equal(h.count, 3); assert.equal(h.doneCount, 2);
+  assert.equal(Math.round(h.profit), 220);
+  assert.ok(Math.abs(h.rate - 220 / 300) < 1e-9);
+  assert.equal(r.total.count, 3);
+});
+
+test('施工地図: 住所を区市・町名・丁目に分ける(全角・「丁目」表記も読む)', () => {
+  assert.deepEqual(E.parseAddress('江戸川区東小岩3-12-4'), { city: '江戸川区', town: '東小岩', chome: 3, key: '江戸川区東小岩3-12-4' });
+  const b = E.parseAddress('東京都江戸川区南篠崎町4丁目15-10');
+  assert.equal(b.city, '江戸川区'); assert.equal(b.town, '南篠崎町'); assert.equal(b.chome, 4);
+  const c = E.parseAddress('江戸川区西一之江２－９－１２');
+  assert.equal(c.town, '西一之江'); assert.equal(c.chome, 2);
+  assert.equal(E.parseAddress('埼玉県新座市野火止5-1-1').city, '新座市');
+  assert.equal(E.parseAddress('江戸川区役所').town, '役所');
+  assert.equal(E.parseAddress('').city, '');
+});
+
+test('施工地図: 追加工事は同じ邸にまとめる。未完工の邸だけ色分け。丁目ごとに並べる', () => {
+  const mk = (name, addr, extra = {}) => ({ 契約日: '2026-01-10', 顧客名: name, 住所: addr, '契約金額(万円)': 100, 集客経路: '訪問', ...extra });
+  const custs = E.enrichAll({ 顧客: [
+    mk('山田　太郎', '江戸川区東小岩3-1-1', { 完工日: '2026-03-01' }),
+    mk('山田　太郎邸追', '江戸川区東小岩3-1-1', { 集客経路: '追加' }), // 追加は完工日なし → 山田邸は未完工
+    mk('鈴木　花子', '江戸川区東小岩3-9-9', { 完工日: '2026-03-01' }),
+    mk('佐藤　次郎', '江戸川区東小岩5-2-2'),
+    mk('丙野　三郎', '江戸川区南小岩1-1-1', { 完工日: '2026-04-01' }),
+    mk('下請　施主', '江戸川区南小岩2-2-2', { 集客経路: 'MIRAI' }),
+    mk('丁野　一郎', '市川市八幡1-1-1', { 完工日: '2026-04-01' }),
+    mk('田中　四郎', '江戸川区東小岩3-1-1', { 集客経路: '追加', 顧客名: '別の名前邸追' }), // 住所が同じなら同じ邸にまとめる
+  ] });
+  const houses = E.mapHouses(custs);
+  assert.equal(houses.length, 5); // 山田(追加込み)・鈴木・佐藤・丙野・丁野(下請けは出さない)
+  const y = houses.find((x) => x.name === '山田');
+  assert.equal(y.members.length, 3); assert.equal(y.done, false); assert.equal(y.hasAdd, true);
+  assert.deepEqual(E.mapCities(houses).map((x) => x.city), ['江戸川区', '市川市']);
+  const blocks = E.mapBlocks(houses, { city: '江戸川区' });
+  assert.deepEqual(blocks.map((b) => [b.town, b.count, b.open]), [['東小岩', 3, 2], ['南小岩', 1, 0]]);
+  assert.deepEqual(blocks[0].chomes.map((c) => [c.label, c.items.length]), [['3丁目', 2], ['5丁目', 1]]);
+  assert.equal(blocks[0].chomes[0].items[0].done, false); // 未完工が先
+  assert.deepEqual(E.mapBlocks(houses, { city: '江戸川区', onlyOpen: true }).map((b) => [b.town, b.count]), [['東小岩', 2]]);
 });

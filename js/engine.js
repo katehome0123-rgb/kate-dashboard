@@ -341,7 +341,7 @@ export function leadingName(full) { // 苗字+邸(すでに邸が付いていれ
   const first = splitName(full)[0] || '';
   return first ? (first.includes('邸') ? first : first + '邸') : '';
 }
-// 住所から地域を出す: 「江戸川区東小岩5-15-9」→「東小岩」(区の後ろ〜最初の数字まで)。区がなければ 県の後ろ(市名から)。
+// 住所から地域を出す: 「江戸川区東サンプル町5-1-1」→「東サンプル町」(区の後ろ〜最初の数字まで)。区がなければ 県の後ろ(市名から)。
 export function regionOf(addr) {
   const a = String(addr || '').trim();
   if (!a) return '';
@@ -672,19 +672,90 @@ export function portalSlots(leads, { year = null, person = '' } = {}) {
 }
 
 
-// ---- 割合(集客経路ごとの契約件数・売上のシェア) ----------------------------------
-// 追加工事と下請け(MIRAI)は集客ではないので、件数にも売上にも入れない。year=null は累計。
+// ---- 割合(集客経路ごとの契約件数・売上・利益・利益率) ----------------------------------
+// 追加工事と下請け(MIRAI)は集客ではないので入れない。year=null は累計。
+// 利益 = 着地利益(税抜売上 − 実際の経費)、利益率 = 利益 ÷ 税抜売上。どちらも完工日が入っている案件だけで計算する(経費が確定していないため)。
 // by='route' は集客経路そのまま、by='group' は媒体グループ(訪問・ポータル・チラシ…)にまとめる。
 export function routeShare(custs, { year = null, by = 'route' } = {}) {
   const pool = custs.filter((c) => c._count && c['契約日'] && (!year || c._year === year));
   const m = new Map();
+  const blank = (name) => ({ name, count: 0, sales: 0, doneCount: 0, taxEx: 0, landing: 0 });
+  const add = (x, c) => {
+    x.count += 1; x.sales += c._sales;
+    if (c._done) { x.doneCount += 1; x.taxEx += c._taxEx; x.landing += c._landing; }
+  };
+  const total = blank('合計');
   for (const c of pool) {
     const key = by === 'group' ? mediaGroup(c['集客経路']) : (String(c['集客経路'] || '').trim() || '(不明)');
-    const x = m.get(key) || { name: key, count: 0, sales: 0 };
-    x.count += 1; x.sales += c._sales;
-    m.set(key, x);
+    if (!m.has(key)) m.set(key, blank(key));
+    add(m.get(key), c); add(total, c);
   }
-  const rows = [...m.values()].sort((a, b) => b.count - a.count || b.sales - a.sales);
-  const total = { count: rows.reduce((t, r) => t + r.count, 0), sales: rows.reduce((t, r) => t + r.sales, 0) };
-  return { rows: rows.map((r) => ({ ...r, shareCount: total.count ? r.count / total.count : 0, shareSales: total.sales ? r.sales / total.sales : 0 })), total };
+  const fin = (x, all) => ({ ...x, profit: x.landing / 10000, rate: x.taxEx ? x.landing / x.taxEx : null, shareCount: all.count ? x.count / all.count : 0, shareSales: all.sales ? x.sales / all.sales : 0 });
+  const rows = [...m.values()].sort((a, b) => b.count - a.count || b.sales - a.sales).map((r) => fin(r, total));
+  return { rows, total: fin(total, total) };
+}
+
+
+// ---- 施工地図(住所を 区市 → 町名 → 丁目 に分けて、邸ごとに完工したかを見る) ---------------
+// 住所の書き方: 「江戸川区東小岩3-12-4」「東京都江戸川区南篠崎町4丁目15-10」など。全角の数字・ハイフンも読む。
+const PREF = /^(北海道|東京都|(?:京都|大阪)府|[^\d\s]{2,3}県)/;
+export function parseAddress(addr) {
+  let t = String(addr || '').normalize('NFKC').replace(/[\s　]/g, '').replace(/[‐‑–—−ー]/g, '-');
+  t = t.replace(PREF, '');
+  const cm = t.match(/^(.+?[区市])(.*)$/);
+  if (!cm) return { city: '', town: '', chome: null, key: t };
+  const rest = cm[2];
+  const tm = rest.match(/^([^\d]+?)(\d+)(?:丁目|-|$|番|号)?/);
+  const town = tm ? tm[1] : rest.replace(/\d.*$/, '');
+  return { city: cm[1], town, chome: tm ? Number(tm[2]) : null, key: cm[1] + rest };
+}
+const surname = (name) => String(name || '').normalize('NFKC').replace(/邸追?$/, '').split(/[\s　]+/)[0];
+// 施工地図の1件 = 1つの邸(住所)。追加工事は同じ住所・同じ名前の邸にまとめる(重複して出さない)。下請け(MIRAI)は出さない。
+// 完工(done) = その邸のすべての工事に完工日が入っている(追加工事の完工日が空欄なら未完工)。
+export function mapHouses(custs) {
+  const houses = [];
+  const byKey = new Map();
+  const list = custs.filter((c) => !c._sub && c['住所']).sort((a, b) => Number(a._add) - Number(b._add) || String(a['契約日']).localeCompare(String(b['契約日'])));
+  for (const c of list) {
+    const a = parseAddress(c['住所']);
+    const name = surname(c['顧客名']);
+    let hs = byKey.get(a.key + '|' + name) || byKey.get(a.key);
+    if (c._add && !hs) hs = houses.find((x) => x.name === name && x.city === a.city);
+    if (!hs) {
+      hs = { name, label: `${name}邸`, city: a.city, town: a.town, chome: a.chome, address: String(c['住所']), members: [], done: true, startDate: null, doneDate: null, hasAdd: false };
+      houses.push(hs); byKey.set(a.key + '|' + name, hs); if (!byKey.has(a.key)) byKey.set(a.key, hs);
+    }
+    hs.members.push(c);
+    if (c._add) hs.hasAdd = true;
+    if (!c['完工日']) hs.done = false;
+    else if (!hs.doneDate || c['完工日'] > hs.doneDate) hs.doneDate = c['完工日'];
+    if (c['着工日'] && (!hs.startDate || c['着工日'] > hs.startDate)) hs.startDate = c['着工日'];
+  }
+  return houses;
+}
+export function mapCities(houses) {
+  const m = new Map();
+  for (const x of houses) if (x.city) m.set(x.city, (m.get(x.city) || 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([city, count]) => ({ city, count }));
+}
+// city の邸を 町名ごとのかたまり(地域)にする。onlyOpen=true なら未完工の邸だけ。
+export function mapBlocks(houses, { city = '江戸川区', onlyOpen = false } = {}) {
+  const pool = houses.filter((x) => x.city === city && (!onlyOpen || !x.done));
+  const towns = new Map();
+  for (const x of pool) {
+    const t = x.town || '(町名なし)';
+    if (!towns.has(t)) towns.set(t, new Map());
+    const cm = towns.get(t);
+    const k = x.chome === null ? 0 : x.chome;
+    if (!cm.has(k)) cm.set(k, []);
+    cm.get(k).push(x);
+  }
+  const blocks = [...towns.entries()].map(([town, cm]) => {
+    const chomes = [...cm.entries()].sort((a, b) => (a[0] || 99) - (b[0] || 99)).map(([chome, items]) => ({
+      chome: chome || null, label: chome ? `${chome}丁目` : '丁目なし', items: items.sort((a, b) => Number(a.done) - Number(b.done) || a.label.localeCompare(b.label, 'ja')),
+    }));
+    const all = chomes.flatMap((c) => c.items);
+    return { town, count: all.length, open: all.filter((x) => !x.done).length, chomes };
+  });
+  return blocks.sort((a, b) => b.count - a.count || a.town.localeCompare(b.town, 'ja'));
 }

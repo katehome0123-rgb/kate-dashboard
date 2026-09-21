@@ -3,6 +3,7 @@
 
 const enc = new TextEncoder();
 export const A4L = { w: 841.89, h: 595.28 }; // A4横(pt)
+export const A4P = { w: 595.28, h: 841.89 }; // A4縦(pt)
 
 // pages = [{ w, h, jpeg: Uint8Array }] → PDF のバイト列(1ページ=画像1枚)
 export function buildPdf(pages, size = A4L) {
@@ -186,4 +187,117 @@ export function downloadBlob(blob, filename) {
   a.href = url; a.download = filename;
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+// ---- 施工地図(A4縦) -----------------------------------------------------
+// model = { title, sub, issued, legend:[…], blocks:[{town, count, open, chomes:[{label, items:[{label, done}]}]}] }
+// 町名ごとにオレンジの枠。未完工の邸は青、完工した邸は白(灰色の線)で描く。
+export function drawMapPages(model, { scale = 2.2 } = {}) {
+  const W = 794, H = 1123, M = 34, COLS = 3, GAP = 12;
+  const colW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
+  const top = M + 62, bottom = H - M - 6;
+  const measure = document.createElement('canvas').getContext('2d');
+  const CF = 12, chipH = 20, chipGap = 5, pad = 9;
+  measure.font = `${CF}px ${FONT}`;
+  const chipW = (t) => Math.min(colW - pad * 2, measure.measureText(t).width + 14);
+  // 1つの丁目の並べ方(折り返し)
+  const flow = (items, maxW) => {
+    const rows = [[]]; let x = 0;
+    for (const it of items) {
+      const w = chipW(it.label);
+      if (x && x + w > maxW) { rows.push([]); x = 0; }
+      rows[rows.length - 1].push({ ...it, w, x }); x += w + chipGap;
+    }
+    return rows;
+  };
+  const headH = 26, chomeLabelH = 16;
+  const prep = (block) => {
+    const rows = block.chomes.map((c) => {
+      const lines = flow(c.items, colW - pad * 2);
+      return { label: c.label, lines, h: chomeLabelH + lines.length * (chipH + chipGap) + 4 };
+    });
+    return rows;
+  };
+  // 高さがページより大きい町は、丁目の行で分けて「続き」にする
+  const segs = [];
+  for (const b of model.blocks) {
+    const rows = prep(b);
+    const maxH = bottom - top - headH - pad * 2;
+    let cur = [], used = 0, part = 0;
+    for (const r of rows) {
+      if (cur.length && used + r.h > maxH) { segs.push({ block: b, rows: cur, h: headH + used + pad * 2, cont: part++ > 0 }); cur = []; used = 0; }
+      cur.push(r); used += r.h;
+    }
+    segs.push({ block: b, rows: cur, h: headH + used + pad * 2, cont: part > 0 });
+  }
+  // ページと列に置く(いちばん低い列に、入るなら置く)
+  const pages = [];
+  const newPage = () => { const pg = { cols: Array.from({ length: COLS }, () => top), items: [] }; pages.push(pg); return pg; };
+  newPage();
+  for (const sg of segs) {
+    let pg = pages[pages.length - 1];
+    let ci = pg.cols.indexOf(Math.min(...pg.cols));
+    if (pg.cols[ci] + sg.h > bottom) {
+      // ほかの列に入るところがあるか
+      const ok = pg.cols.map((y, i) => [y, i]).filter(([y]) => y + sg.h <= bottom).sort((a, b) => a[0] - b[0])[0];
+      if (ok) ci = ok[1]; else { pg = newPage(); ci = 0; }
+    }
+    pg.items.push({ sg, x: M + ci * (colW + GAP), y: pg.cols[ci] });
+    pg.cols[ci] += sg.h + GAP;
+  }
+  return pages.map((pg, pi) => {
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(W * scale); cv.height = Math.round(H * scale);
+    const c = cv.getContext('2d');
+    c.scale(scale, scale);
+    c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+    c.textBaseline = 'alphabetic';
+    c.fillStyle = '#111'; c.font = `700 22px ${FONT}`; c.fillText(model.title, M, M + 20);
+    c.fillStyle = '#444'; c.font = `13px ${FONT}`; c.fillText(model.sub, M, M + 42);
+    // 凡例と発行日
+    c.textAlign = 'right'; c.fillText(`発行日 ${model.issued}`, W - M, M + 20);
+    c.textAlign = 'left';
+    let lx = W - M - 190;
+    const legend = (fill, stroke, text) => {
+      c.fillStyle = fill; c.strokeStyle = stroke; c.lineWidth = 1;
+      c.beginPath(); c.roundRect ? c.roundRect(lx, M + 30, 30, 14, 4) : c.rect(lx, M + 30, 30, 14); c.fill(); c.stroke();
+      c.fillStyle = '#444'; c.font = `12px ${FONT}`; c.fillText(text, lx + 36, M + 42); lx += 36 + c.measureText(text).width + 12;
+    };
+    legend('#2a78d6', '#2a78d6', '未完工'); legend('#fff', '#8a8983', '完工');
+    if (pages.length > 1) { c.fillStyle = '#444'; c.textAlign = 'right'; c.font = `12px ${FONT}`; c.fillText(`${pi + 1} / ${pages.length}`, W - M, H - M + 6); c.textAlign = 'left'; }
+    for (const { sg, x, y } of pg.items) {
+      c.strokeStyle = '#f08a24'; c.lineWidth = 2.5; c.fillStyle = '#fff';
+      c.beginPath(); c.roundRect ? c.roundRect(x, y, colW, sg.h, 8) : c.rect(x, y, colW, sg.h); c.fill(); c.stroke();
+      c.fillStyle = '#111'; c.font = `700 14px ${FONT}`;
+      c.fillText(sg.block.town + (sg.cont ? '(続き)' : ''), x + pad, y + pad + 14);
+      c.fillStyle = '#555'; c.font = `12px ${FONT}`; c.textAlign = 'right';
+      c.fillText(`${sg.block.count}件` + (sg.block.open ? ` ・ 未完工${sg.block.open}` : ''), x + colW - pad, y + pad + 14); c.textAlign = 'left';
+      let yy = y + pad + headH - 6;
+      for (const r of sg.rows) {
+        c.fillStyle = '#666'; c.font = `11px ${FONT}`; c.fillText(r.label, x + pad, yy + 10);
+        yy += chomeLabelH;
+        for (const line of r.lines) {
+          for (const chip of line) {
+            const cx = x + pad + chip.x;
+            c.fillStyle = chip.done ? '#fff' : '#2a78d6'; c.strokeStyle = chip.done ? '#8a8983' : '#2a78d6'; c.lineWidth = 1;
+            c.beginPath(); c.roundRect ? c.roundRect(cx, yy, chip.w, chipH, 5) : c.rect(cx, yy, chip.w, chipH); c.fill(); c.stroke();
+            c.fillStyle = chip.done ? '#111' : '#fff'; c.font = `${chip.done ? '' : '700 '}${CF}px ${FONT}`;
+            c.fillText(chip.label, cx + 7, yy + 14);
+          }
+          yy += chipH + chipGap;
+        }
+        yy += 4;
+      }
+    }
+    return cv;
+  });
+}
+export async function mapPdfBlob(model) {
+  const canvases = drawMapPages(model);
+  const pages = [];
+  for (const cv of canvases) {
+    const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.92));
+    pages.push({ w: cv.width, h: cv.height, jpeg: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  return new Blob([buildPdf(pages, A4P)], { type: 'application/pdf' });
 }

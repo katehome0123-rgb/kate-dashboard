@@ -19,7 +19,7 @@ for y, cnt in [(2024,22),(2025,34),(2026,26)]:
         sc = random.choice([120000,150000,180000,200000]); w1 = round(sales*10000/1.1*random.uniform(0.18,0.30),-4)
         c = {'顧客ID': f'C{n:04d}', '契約日': d.isoformat(), '顧客名': f'サンプル　{n:02d}' + ('邸追' if r[0]=='追加' else ''), '契約金額(万円)': sales, '粗利(万円・手入力)': gross,
              '担当C': random.choice(people), '担当A': None, '集客経路': r[0], '着工日': (d+datetime.timedelta(days=35)).isoformat(),
-             '材料費': mat, '足場発注': sc, '職人①': 'サンプル塗装', '職人①発注': w1, '電話番号①': f'03-0000-{n:04d}', '住所': f'江戸川区サンプル町{n%9+1}-{n%7+1}-{n%5+1}'}
+             '材料費': mat, '足場発注': sc, '職人①': 'サンプル塗装', '職人①発注': w1, '電話番号①': f'03-0000-{n:04d}', '住所': f'江戸川区{["サンプル町","見本台","練習原","例示町","模擬丘","仮称"][n%6]}{n%4+1}-{n%7+1}-{n%5+1}'}
         if random.random() < 0.15: c['担当A'] = [p for p in people if p != c['担当C']][0]
         start = d+datetime.timedelta(days=35)
         if start + datetime.timedelta(days=20) < datetime.date(2026,9,1): c['完工日'] = (start+datetime.timedelta(days=random.randint(12,25))).isoformat()
