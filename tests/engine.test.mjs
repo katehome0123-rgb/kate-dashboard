@@ -158,7 +158,7 @@ test('入出金: 入金日が空の案件だけが対象。同じ苗字は名前
       { 日付: '2024-01-01', 種別: '入金', 顧客名: '山田邸', '金額(円)': 999999 }, // 契約日より前 = 別の案件の入金(数えない)
       { 日付: '2026-06-05', 種別: '入金', 顧客名: '佐藤邸(一郎)', '金額(円)': 300000 },
       { 日付: '2025-02-01', 種別: '入金', 顧客名: '済藤邸', '金額(円)': 900000 },
-      { 日付: '2026-07-01', 種別: '入金', 顧客名: '松居邸', '金額(円)': 1000 }, // 打ち間違い
+      { 日付: '2026-07-01', 種別: '入金', 顧客名: '見本違い邸', '金額(円)': 1000 }, // 打ち間違い
     ],
   };
   const cb = E.cashBook(data);
@@ -172,6 +172,67 @@ test('入出金: 入金日が空の案件だけが対象。同じ苗字は名前
   assert.equal(cb.cases[2].region, '川口市栄町');
   assert.equal(E.regionOf('埼玉県川口市栄町1-1'), '川口市栄町');
   assert.equal(cb.totalUnpaidIn, 580000 + 700000 + 800000);
-  assert.deepEqual(cb.unknown, ['松居邸']); // 入金日が入った済藤邸は間違いではない
+  assert.deepEqual(cb.unknown, ['見本違い邸']); // 入金日が入った済藤邸は間違いではない
 });
 
+
+// ---- インセン(架空の数字) ----
+const incCase = (o) => ({ 契約日: '2026-01-10', '契約金額(万円)': 110, 材料費: 200000, 顧客名: '見本　一郎', 担当C: 'ア', 入金日: '2026-03-31', 集客経路: '訪問', ...o });
+const incRun = (cases, adj = [], settings = []) => {
+  const data = { 顧客: cases, インセン調整: adj, 設定: settings };
+  return E.incentiveLines(data, E.enrichAll(data));
+};
+
+test('インセン: 着地利益×20%。クロだけなら100%。計上月は入金日の翌月', () => {
+  const [l] = incRun([incCase({})]);
+  assert.equal(l.landing, 800000);      // 100万 − 20万
+  assert.equal(l.amount, 160000);       // 80万 × 20%
+  assert.equal(l.role, 'クロ');
+  assert.equal(l.month, '2026-04');
+});
+test('インセン: ポータルは10%。月末の入金日でも翌月末を越えない', () => {
+  const [l] = incRun([incCase({ 集客経路: 'ヌリカエ', 入金日: '2026-01-31' })]);
+  assert.equal(l.rate, 0.1);
+  assert.equal(l.amount, 80000);
+  assert.equal(l.month, '2026-02');
+});
+test('インセン: クロとアポがいれば 40%:60%。アポだけなら60%。入金日がなければ対象外', () => {
+  const ls = incRun([incCase({ 担当A: 'イ' }), incCase({ 顧客名: '見本　二郎', 担当C: '', 担当A: 'イ' }), incCase({ 顧客名: '見本　三郎', 入金日: '' })]);
+  assert.equal(ls.length, 3);
+  assert.deepEqual(ls.slice(0, 2).map((l) => [l.person, l.amount]), [['ア', 64000], ['イ', 96000]]);
+  assert.equal(ls[2].amount, 96000); // アポだけ = 160000 × 60%
+});
+test('インセン: 調整シートの金額を優先する(対象ごと・案件全体)', () => {
+  const two = incCase({ 担当A: 'イ' });
+  const a = incRun([two], [{ 顧客名: '見本　一郎', '対象(クロ/アポ)': 'クロ', '上書きする金額(円)': 100000, 理由: '特別' }]);
+  assert.deepEqual(a.map((l) => [l.person, l.amount, l.adjusted, l.reason]), [['ア', 100000, true, '特別'], ['イ', 96000, false, '']]);
+  const b = incRun([two], [{ 顧客名: '見本　一郎', '対象(クロ/アポ)': '', '上書きする金額(円)': 200000, 理由: '' }]);
+  assert.deepEqual(b.map((l) => l.amount), [80000, 120000]);
+  assert.equal(b[0].adjusted, true);
+  assert.equal(b[0].calc, 64000); // 計算上の金額も残す
+});
+test('インセン: 経費未入力・マイナスに注意を付ける。担当者の選択肢と月別合計', () => {
+  const ls = incRun([incCase({ 材料費: 0 }), incCase({ 顧客名: '見本　四郎', 材料費: 1500000 })], [], [{ 項目: 'インセン対象外の担当', '値(入力)': 'ウ' }]);
+  assert.deepEqual(ls.map((l) => l.warn), [['経費が未入力'], ['着地利益がマイナス']]);
+  const ls2 = incRun([incCase({ 担当C: 'ウ' }), incCase({ 顧客名: '見本　五郎' })]);
+  const data = { 設定: [{ 項目: 'インセン対象外の担当', '値(入力)': 'ウ' }] };
+  assert.deepEqual(E.incentivePersons(data, ls2), ['ア']);
+  assert.deepEqual(E.incentiveMonths(ls2, 'ア'), [{ month: '2026-04', count: 1, amount: 160000, adjusted: 0 }]);
+});
+
+test('利益率の担当別: クロ40%:アポ60%の重みで数え、件数は共同でも1件。タブの人は最新年の契約者', () => {
+  const base = { 契約日: '2026-02-01', '契約金額(万円)': 110, 完工日: '2026-03-01', 集客経路: '訪問' };
+  const data = { 顧客: [
+    { ...base, 顧客名: 'a', 担当C: 'ア', 材料費: 200000 },                    // 着地 80万 / 税抜 100万
+    { ...base, 顧客名: 'b', 担当C: 'ア', 担当A: 'イ', 材料費: 500000 },       // 着地 50万 / 税抜 100万
+    { ...base, 契約日: '2024-02-01', 顧客名: 'c', 担当C: 'ウ' },
+  ], 設定: [] };
+  const cu = E.enrichAll(data);
+  assert.deepEqual(E.profitPersons(data, cu), ['ア', 'イ']);
+  const a = E.profitByMedia(E.forPerson(cu, 'ア')).all.byYear[2026];
+  assert.equal(a.count, 2);
+  assert.equal(Math.round(a.rate * 1000) / 1000, Math.round(((800000 + 500000 * 0.4) / (1000000 + 1000000 * 0.4)) * 1000) / 1000);
+  const i = E.profitByMedia(E.forPerson(cu, 'イ')).all.byYear[2026];
+  assert.equal(i.count, 1);
+  assert.equal(Math.round(i.rate * 100), 50);
+});

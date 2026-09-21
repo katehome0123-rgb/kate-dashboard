@@ -149,6 +149,32 @@ export function profitByMedia(custs, { onlyDone = true } = {}) {
   if (subs.length) extra.push(build('下請け(MIRAI)', subs, true));
   return { years, rows, extra, all: build('全体', custs) };
 }
+// 担当者ごとの利益率: その人がクロ(担当C)かアポ(担当A)の案件を、売上の按分と同じ割合(C40%:A60%、Aだけ60%、Cだけ100%)で数字に入れる。
+// 件数は共同担当でも1件と数える。割合は分子・分母に同じ重みが掛かるので、その人の加重平均になる。
+export function forPerson(custs, person) {
+  const out = [];
+  for (const c of custs) {
+    const C = c['担当C'] || '', A = c['担当A'] || '';
+    let w = 0;
+    if (C === person) w = A ? 0.4 : 1;
+    else if (A === person) w = 0.6;
+    if (!w) continue;
+    out.push({ ...c, _sales: c._sales * w, _gross: c._gross * w, _taxEx: c._taxEx * w, _landing: c._landing * w, _costs: c._costs * w });
+  }
+  return out;
+}
+// 利益率のタブに出す担当者: 最新の契約年に契約がある人(設定シートの「利益率のタブ」にカンマ区切りで書けば、その名前を優先)
+export function profitPersons(data, custs) {
+  const set = settingValue(data, '利益率のタブ').split(/[,、，\s]+/).filter(Boolean);
+  if (set.length) return set;
+  const y = Math.max(0, ...custs.map((c) => c._year || 0));
+  const m = new Map();
+  for (const c of custs) {
+    if (c._year !== y) continue;
+    for (const p of [c['担当C'], c['担当A']]) if (p) m.set(p, (m.get(p) || 0) + 1);
+  }
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+}
 // 前の年との差(ポイント)。前の年に件数が無ければ null
 export function trend(byYear, years, y) {
   const i = years.indexOf(y);
@@ -338,4 +364,63 @@ export function cashBook(data) {
     totalUnpaidOut: cases.reduce((s, c) => s + c.unpaidOut, 0),
     ledger, unknown,
   };
+}
+
+// ---- インセン ----------------------------------------------------
+// インセン = 着地利益 × 歩合率(通常20%、ポータル・リショップ・ヌリカエ・窓口は10%)。
+// 配分: 担当C(クロ)と担当A(アポ)がいれば C 40% : A 60%。Cだけなら100%。Aだけなら60%(売上の按分と同じ)。
+// 計上月 = 入金日の翌月。予想粗利(手入力)は使わない。「インセン調整」シートの金額はアプリの計算より優先する。
+export const INCENTIVE_RATE = 0.2;
+export const INCENTIVE_RATE_PORTAL = 0.1;
+export const incentiveRate = (c) => (c._group === 'ポータル' || c['集客経路'] === 'ポータル' ? INCENTIVE_RATE_PORTAL : INCENTIVE_RATE);
+
+export function incentiveLines(data, custs) {
+  const adj = (data['インセン調整'] || []).filter((r) => r['顧客名'] && String(r['上書きする金額(円)'] ?? '') !== '');
+  const lines = [];
+  for (const c of custs) {
+    if (!c['入金日'] || !c['顧客名']) continue;
+    const C = c['担当C'] || '', A = c['担当A'] || '';
+    const parts = [];
+    if (C && A) parts.push({ who: C, role: 'クロ', share: 0.4 }, { who: A, role: 'アポ', share: 0.6 });
+    else if (A) parts.push({ who: A, role: 'アポ', share: 0.6 });
+    else if (C) parts.push({ who: C, role: 'クロ', share: 1 });
+    if (!parts.length) continue;
+    const rate = incentiveRate(c);
+    const mine = adj.filter((r) => r['顧客名'] === c['顧客名']);
+    const whole = mine.find((r) => !String(r['対象(クロ/アポ)'] || '').trim()); // 対象が空 = 案件全体の金額を上書き
+    const base = whole ? num(whole['上書きする金額(円)']) : c._landing * rate; // 配分する前の金額
+    for (const p of parts) {
+      const own = mine.find((r) => String(r['対象(クロ/アポ)'] || '').trim() === p.role);
+      const calc = Math.round(c._landing * rate * p.share);
+      const amount = own ? Math.round(num(own['上書きする金額(円)'])) : Math.round(base * p.share);
+      const hit = own || whole;
+      const warn = [];
+      if (!c._costEntered) warn.push('経費が未入力');
+      if (!hit && c._landing < 0) warn.push('着地利益がマイナス');
+      lines.push({
+        person: p.who, role: p.role, share: p.share, rate, name: c['顧客名'], route: c['集客経路'] || '', contractDate: c['契約日'] || '', payDate: c['入金日'],
+        month: ymOf(addMonths(c['入金日'], 1)), taxEx: Math.round(c._taxEx), costs: c._costs, landing: Math.round(c._landing),
+        calc, amount, adjusted: !!hit, reason: hit ? String(hit['理由'] || '') : '', warn,
+      });
+    }
+  }
+  return lines;
+}
+// 設定シートの「インセン対象外の担当」(カンマ区切り)に書いた名前は、担当者の選択肢に出さない(空欄なら全員)
+export function incentivePersons(data, lines) {
+  const skip = new Set(settingValue(data, 'インセン対象外の担当').split(/[,、，\s]+/).filter(Boolean));
+  const m = new Map();
+  for (const l of lines) if (!skip.has(l.person)) m.set(l.person, (m.get(l.person) || 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+}
+// 担当者ごとの月別の合計(新しい月が先)
+export function incentiveMonths(lines, person) {
+  const m = new Map();
+  for (const l of lines) {
+    if (l.person !== person) continue;
+    const x = m.get(l.month) || { month: l.month, count: 0, amount: 0, adjusted: 0 };
+    x.count += 1; x.amount += l.amount; if (l.adjusted) x.adjusted += 1;
+    m.set(l.month, x);
+  }
+  return [...m.values()].sort((a, b) => b.month.localeCompare(a.month));
 }

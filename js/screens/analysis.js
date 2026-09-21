@@ -1,4 +1,4 @@
-import { h, segmented, barCell } from '../ui.js';
+import { h, segmented } from '../ui.js';
 import * as E from '../engine.js';
 
 // 集客分析: 成約率 = 成約 ÷ (成約+不成約)
@@ -18,7 +18,7 @@ export function render(ctx) {
     h('td', { class: 'num' }, x.win),
     h('td', { class: 'num' }, x.lose),
     h('td', { class: 'num muted' }, x.pending),
-    h('td', null, barCell(x.rate, E.fmtPct(x.rate, 0), 1)));
+    h('td', { class: 'num' }, E.fmtPct(x.rate, 0)));
 
   const body = [];
   for (const sec of t.sections) {

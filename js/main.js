@@ -9,6 +9,7 @@ import * as analysis from './screens/analysis.js';
 import * as profit from './screens/profit.js';
 import * as cash from './screens/cash.js';
 import * as maint from './screens/maint.js';
+import * as incentive from './screens/incentive.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -17,6 +18,7 @@ const ICON = {
   analysis: 'M12 3a9 9 0 1 0 9 9h-9zM15 3.5A9 9 0 0 1 20.5 9H15z',
   profit: 'M3 17l6-6 4 4 8-9m0 0h-5m5 0v5',
   maint: 'M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.5 2.5-2.2-.6-.6-2.2z',
+  incentive: 'M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
 };
 const ROUTES = [
@@ -26,6 +28,7 @@ const ROUTES = [
   { id: 'analysis', label: '集客分析', mod: analysis },
   { id: 'profit', label: '利益率', mod: profit },
   { id: 'cash', label: '入出金', mod: cash },
+  { id: 'incentive', label: 'インセン', mod: incentive },
 ];
 const root = document.getElementById('root');
 const ctx = { data: null, custs: [], state: { year: null, aYear: 0, person: '', alertAll: {} }, loadedAt: null, rerender: () => draw() };
@@ -52,7 +55,7 @@ function draw() {
     DEMO ? null : h('button', { class: 'btn', type: 'button', onclick: () => boot(true) }, '最新に更新'),
     h('button', { class: 'btn', type: 'button', onclick: () => { const dark = matchMedia('(prefers-color-scheme: dark)').matches; const cur = document.documentElement.getAttribute('data-theme') || (dark ? 'dark' : 'light'); setTheme(cur === 'dark' ? 'light' : 'dark'); }, 'aria-label': '明るさを切り替え' }, '明/暗'),
     DEMO ? null : h('button', { class: 'btn', type: 'button', onclick: () => { signOut(); location.reload(); } }, 'ログアウト'));
-  const banner = DEMO ? h('div', { class: 'notice', style: 'margin-bottom:12px' }, 'これは練習用の架空データです。実際の売上や案件の数字ではありません。') : null;
+  const banner = DEMO ? h('div', { class: 'notice noprint', style: 'margin-bottom:12px' }, 'これは練習用の架空データです。実際の売上や案件の数字ではありません。') : null;
   const main = h('main', { class: 'main', id: 'main' }, bar, banner, route.mod.render(ctx));
   root.replaceChildren(h('div', { class: 'app' }, nav, main));
   document.title = `${route.label} | ケイトホーム`;

@@ -139,7 +139,6 @@ td.sub { padding-left: 24px; }
   .main { padding: 16px 16px 96px; }
   .kpi .value { font-size: 22px; }
 }
-@media print { .nav, .controls .btn { display: none; } .app { display: block; } }
 @media (prefers-reduced-motion: no-preference) { .card, .seg button { transition: background-color .15s; } }
 
 /* ---- 売上の表・アラート ---- */
@@ -182,3 +181,35 @@ td.okv { color: var(--ink2); }
 .cashtable td, .cashtable th { white-space: nowrap; }
 .cashtable td.stick { min-width: 8em; }
 .cashtable tr.detail td { white-space: normal; }
+
+/* インセン明細(画面と印刷で共通) */
+.inchead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.incwho { text-align: right; }
+.inctable { min-width: 860px; }
+.inctable td, .inctable th { white-space: nowrap; }
+.inctable td.notecol { white-space: normal; min-width: 12em; font-size: 13px; }
+.inctable td.strong { font-weight: 700; }
+.incfoot { margin: 10px 0 0; }
+.adjmark { display: inline-block; font-size: 12px; font-weight: 700; padding: 0 8px; border-radius: 999px; color: var(--ink); border: 1px solid var(--s4); background: color-mix(in srgb, var(--s4) 22%, transparent); }
+tr.clickrow[aria-current="true"] td { background: color-mix(in srgb, var(--accent) 10%, transparent); font-weight: 700; }
+
+@media (max-width: 820px) { .inctable { min-width: 0; } .hide-sm { display: none; } .inctable th, .inctable td { padding: 9px 5px; } .incsheet { padding: 12px; } }
+.clickrow td { white-space: nowrap; }
+
+/* 印刷(PDF): 明るい配色・A4横。メニューやボタンは出さない */
+@page { size: A4 landscape; margin: 12mm; }
+@media print {
+  :root, :root:not([data-theme="light"]), :root[data-theme="dark"] {
+    --surface: #fff; --panel: #fff; --ink: #000; --ink2: #333; --ink3: #555; --line: #b5b5b0; --grid: #ddd; --shadow: none; --bad: #a11; color-scheme: light;
+  }
+  body { font-size: 12px; }
+  .nav, .noprint, .controls, .banner { display: none !important; }
+  .app { display: block; }
+  .main { padding: 0; max-width: none; }
+  .card { border: 0; padding: 0; box-shadow: none; }
+  .tablewrap { overflow: visible; }
+  .inctable { min-width: 0; width: 100%; }
+  .inctable td, .inctable th { padding: 5px 6px; }
+  .stick { position: static; }
+  tr { break-inside: avoid; }
+}
