@@ -267,7 +267,9 @@ td.nowrap { white-space: nowrap; }
 
 /* 施工地図 */
 .mapgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; align-items: start; }
-.mapblock { border: 2.5px solid #f08a24; border-radius: 10px; padding: 8px 10px 10px; background: var(--panel); }
+.mapblock { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; background: var(--panel); }
+.mapblock.hasopen { border: 2.5px solid #f08a24; padding: 7.5px 9.5px 9.5px; }
+.mapkey { font-size: 12px; border: 2.5px solid #f08a24; border-radius: 6px; padding: 0 8px; }
 .mbhead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
 .mbhead .openn { color: var(--accent); font-weight: 700; }
 .mbrow { margin-top: 6px; }
@@ -278,3 +280,6 @@ td.nowrap { white-space: nowrap; }
 .chip.open { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 .chip sup { font-size: 9px; margin-left: 2px; }
 .legend2 { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+
+a.chip { text-decoration: none; cursor: pointer; }
+a.chip:hover { filter: brightness(0.95); }

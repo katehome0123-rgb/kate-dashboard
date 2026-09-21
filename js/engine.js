@@ -253,6 +253,9 @@ export const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth
 // Googleマップのルート案内(目的地=住所)。スマホではマップアプリが開く
 export const mapHref = (address) => `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(address)}`;
 
+// 住所をGoogleマップで開く(その場所を表示)。ルート案内は上の mapHref
+export const placeHref = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+
 export function settingValue(data, key) {
   const row = (data['設定'] || []).find((r) => r['項目'] === key);
   const v = row ? row['値(入力)'] : null;
@@ -705,9 +708,11 @@ export function parseAddress(addr) {
   const cm = t.match(/^(.+?[区市])(.*)$/);
   if (!cm) return { city: '', town: '', chome: null, key: t };
   const rest = cm[2];
-  const tm = rest.match(/^([^\d]+?)(\d+)(?:丁目|-|$|番|号)?/);
+  const tm = rest.match(/^([^\d]+?)(\d+)(丁目|-|$|番|号)?/);
   const town = tm ? tm[1] : rest.replace(/\d.*$/, '');
-  return { city: cm[1], town, chome: tm ? Number(tm[2]) : null, key: cm[1] + rest };
+  // 「西小松川町28-3」のように町名の次が番地のときは丁目ではない(丁目は9まで。「丁目」と書いてあればそのまま)
+  const chome = tm && (tm[3] === '丁目' || Number(tm[2]) <= 9) ? Number(tm[2]) : null;
+  return { city: cm[1], town, chome, key: cm[1] + rest };
 }
 const surname = (name) => String(name || '').normalize('NFKC').replace(/邸追?$/, '').split(/[\s　]+/)[0];
 // 施工地図の1件 = 1つの邸(住所)。追加工事は同じ住所・同じ名前の邸にまとめる(重複して出さない)。下請け(MIRAI)は出さない。
@@ -758,4 +763,43 @@ export function mapBlocks(houses, { city = '江戸川区', onlyOpen = false } = 
     return { town, count: all.length, open: all.filter((x) => !x.done).length, chomes };
   });
   return blocks.sort((a, b) => b.count - a.count || a.town.localeCompare(b.town, 'ja'));
+}
+
+
+// ---- 口コミ(何人に1人が書いてくれるか) -------------------------------------------
+// 顧客シートの「口コミ」欄に〇(何か入っていれば。×・なし・- は除く)がある契約。追加工事と下請け(MIRAI)は数えない。
+const NOT_REVIEW = /^(×|✕|✗|x|-|ー|なし|無|未)$/i;
+export const hasReview = (c) => {
+  const v = String(c['口コミ'] ?? '').normalize('NFKC').trim();
+  return v !== '' && !NOT_REVIEW.test(v);
+};
+const reviewTally = (list) => {
+  const wrote = list.filter(hasReview).length;
+  return { total: list.length, wrote, rate: list.length ? wrote / list.length : null, oneIn: wrote ? list.length / wrote : null };
+};
+// onlyDone=true なら、完工日が入っている契約だけ(まだ工事中の契約は、頼めていないので外す)
+export function reviewStats(custs, { onlyDone = false, persons = null } = {}) {
+  const pool = custs.filter((c) => c._count && c['契約日'] && (!onlyDone || c._done));
+  const group = (keyFn) => {
+    const m = new Map();
+    for (const c of pool) for (const k of keyFn(c)) { if (!m.has(k)) m.set(k, []); m.get(k).push(c); }
+    return m;
+  };
+  const rows = (m, sort) => [...m.entries()].map(([name, list]) => ({ name, ...reviewTally(list) })).sort(sort);
+  const byYear = rows(group((c) => [c._year]), (a, b) => b.name - a.name);
+  const byRoute = rows(group((c) => [String(c['集客経路'] || '').trim() || '(不明)']), (a, b) => b.total - a.total);
+  const byPerson = rows(group((c) => [c['担当C'], c['担当A']].filter(Boolean)), (a, b) => b.total - a.total).filter((r) => !persons || persons.includes(r.name));
+  return { all: reviewTally(pool), byYear, byRoute, byPerson };
+}
+// 口コミの契約一覧。filter: 'yes'=〇あり / 'no'=〇なし / 'all'。onlyDone=true なら完工した契約だけ。
+// 並びは完工日の新しい順(完工日が空のものは後ろで、契約日の新しい順)。追加・下請けは入れない。
+export function reviewList(custs, { filter = 'all', onlyDone = false, today = todayStr() } = {}) {
+  return custs
+    .filter((c) => c._count && c['契約日'] && (!onlyDone || c._done) && (filter === 'all' || (filter === 'yes') === hasReview(c)))
+    .sort((a, b) => String(b['完工日'] || '').localeCompare(String(a['完工日'] || '')) || String(b['契約日']).localeCompare(String(a['契約日'])))
+    .map((c) => ({
+      name: c['顧客名'], contractDate: String(c['契約日']).slice(0, 10), doneDate: c['完工日'] ? String(c['完工日']).slice(0, 10) : '',
+      days: c['完工日'] ? daysBetween(String(c['完工日']).slice(0, 10), today) : null, wrote: hasReview(c),
+      route: c['集客経路'] || '', person: [c['担当C'], c['担当A']].filter(Boolean).join('・'), address: c['住所'] || '',
+    }));
 }

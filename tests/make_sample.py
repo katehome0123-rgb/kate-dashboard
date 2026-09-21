@@ -45,6 +45,9 @@ for l in leads:
     if l['結果'] == '成約' or prng.random() < 0.9:
         l['紹介数'] = n; l['番手'] = k
 leads.sort(key=lambda x: x['反響日'])
+rv = random.Random(23)
+for c in custs:
+    if c.get('完工日') and rv.random() < 0.4: c['口コミ'] = '〇'
 for c in custs:
     if c.get('完工日') and random.random() < 0.7:
         c['メンテ1か月'] = (datetime.date.fromisoformat(c['完工日'])+datetime.timedelta(days=32)).isoformat()

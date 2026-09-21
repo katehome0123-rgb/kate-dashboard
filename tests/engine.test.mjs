@@ -483,6 +483,9 @@ test('施工地図: 住所を区市・町名・丁目に分ける(全角・「�
   assert.equal(c.town, '西一之江'); assert.equal(c.chome, 2);
   assert.equal(E.parseAddress('埼玉県新座市野火止5-1-1').city, '新座市');
   assert.equal(E.parseAddress('江戸川区役所').town, '役所');
+  assert.equal(E.parseAddress('江戸川区西小松川町28-3').chome, null); // 番地であって丁目ではない
+  assert.equal(E.parseAddress('江戸川区東葛西6-1-1').chome, 6);
+  assert.equal(E.parseAddress('江戸川区東葛西12丁目3').chome, 12);
   assert.equal(E.parseAddress('').city, '');
 });
 
@@ -508,4 +511,34 @@ test('施工地図: 追加工事は同じ邸にまとめる。未完工の邸だ
   assert.deepEqual(blocks[0].chomes.map((c) => [c.label, c.items.length]), [['3丁目', 2], ['5丁目', 1]]);
   assert.equal(blocks[0].chomes[0].items[0].done, false); // 未完工が先
   assert.deepEqual(E.mapBlocks(houses, { city: '江戸川区', onlyOpen: true }).map((b) => [b.town, b.count]), [['東小岩', 2]]);
+});
+
+test('口コミ: 〇がある契約の割合と何人に1人(追加・下請けは数えない)。完工した契約だけにもできる', () => {
+  const mk = (d, extra) => ({ 契約日: d, 顧客名: d + JSON.stringify(extra), 集客経路: '訪問', 担当C: '甲', '契約金額(万円)': 100, ...extra });
+  const custs = E.enrichAll({ 顧客: [
+    mk('2025-01-01', { 口コミ: '〇', 完工日: '2025-03-01' }),
+    mk('2025-02-01', { 口コミ: '×', 完工日: '2025-03-01' }), // × は書いていない
+    mk('2025-03-01', { 完工日: '2025-04-01' }),
+    mk('2026-01-01', { 口コミ: '◯', 完工日: '2026-02-01' }),
+    mk('2026-02-01', {}), // 工事中
+    mk('2026-03-01', { 集客経路: '追加', 口コミ: '〇' }), // 追加は数えない
+    mk('2026-04-01', { 集客経路: 'MIRAI', 口コミ: '〇' }), // 下請けも数えない
+  ] });
+  const r = E.reviewStats(custs);
+  assert.equal(r.all.total, 5); assert.equal(r.all.wrote, 2);
+  assert.equal(r.all.rate, 0.4); assert.equal(r.all.oneIn, 2.5);
+  assert.deepEqual(r.byYear.map((x) => [x.name, x.total, x.wrote]), [[2026, 2, 1], [2025, 3, 1]]);
+  const d = E.reviewStats(custs, { onlyDone: true });
+  assert.equal(d.all.total, 4); assert.equal(d.all.wrote, 2);
+  assert.equal(r.byPerson[0].name, '甲');
+  const no = E.reviewList(custs, { filter: 'no', onlyDone: true, today: '2026-09-20' });
+  assert.equal(no.length, 2); // 完工していて口コミ欄が空(× の1件と、空欄の1件)
+  assert.equal(no[0].doneDate, '2025-04-01');
+  assert.equal(E.reviewList(custs, { filter: 'yes' }).length, 2);
+  assert.equal(E.reviewList(custs, { filter: 'no' }).length, 3); // 工事中の1件を含む
+  assert.equal(E.reviewList(custs, { filter: 'all' }).length, 5);
+  const nl = E.reviewList(custs, { filter: 'no' });
+  assert.deepEqual(nl.map((x) => x.doneDate), ['2025-04-01', '2025-03-01', '']); // 完工日の新しい順。完工日が空のものは最後
+  assert.ok(E.placeHref('江戸川区東小岩3-1-1').startsWith('https://www.google.com/maps/search/?api=1&query=%E6%B1%9F'));
+  assert.equal(E.reviewStats([]).all.oneIn, null);
 });

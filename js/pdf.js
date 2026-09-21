@@ -189,18 +189,18 @@ export function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
-// ---- 施工地図(A4縦) -----------------------------------------------------
-// model = { title, sub, issued, legend:[…], blocks:[{town, count, open, chomes:[{label, items:[{label, done}]}]}] }
-// 町名ごとにオレンジの枠。未完工の邸は青、完工した邸は白(灰色の線)で描く。
-export function drawMapPages(model, { scale = 2.2 } = {}) {
-  const W = 794, H = 1123, M = 34, COLS = 3, GAP = 12;
-  const colW = (W - M * 2 - GAP * (COLS - 1)) / COLS;
-  const top = M + 62, bottom = H - M - 6;
-  const measure = document.createElement('canvas').getContext('2d');
-  const CF = 12, chipH = 20, chipGap = 5, pad = 9;
+// ---- 施工地図(A4縦・1枚に収める) ------------------------------------------
+// model = { title, blocks:[{town, count, open, chomes:[{label, items:[{label, done}]}]}] }
+// 未完工(完工日が空欄)の邸がある町名だけをオレンジの枠で囲み、その邸を青で描く。完工だけの町名は細い灰色の枠。
+// 1枚に入るように、文字の大きさと列の数を自動で調整する(どうしても入らないときだけ複数ページ)。
+const MAP_W = 794, MAP_H = 1123;
+function layoutMap(model, f, cols, measure) {
+  const M = 30, GAP = 10 * f;
+  const colW = (MAP_W - M * 2 - GAP * (cols - 1)) / cols;
+  const top = M + 40, bottom = MAP_H - M;
+  const CF = 12 * f, chipH = 20 * f, chipGap = 5 * f, pad = 9 * f, headH = 26 * f, chomeLabelH = 16 * f;
   measure.font = `${CF}px ${FONT}`;
-  const chipW = (t) => Math.min(colW - pad * 2, measure.measureText(t).width + 14);
-  // 1つの丁目の並べ方(折り返し)
+  const chipW = (t) => Math.min(colW - pad * 2, measure.measureText(t).width + 14 * f);
   const flow = (items, maxW) => {
     const rows = [[]]; let x = 0;
     for (const it of items) {
@@ -210,83 +210,79 @@ export function drawMapPages(model, { scale = 2.2 } = {}) {
     }
     return rows;
   };
-  const headH = 26, chomeLabelH = 16;
-  const prep = (block) => {
-    const rows = block.chomes.map((c) => {
-      const lines = flow(c.items, colW - pad * 2);
-      return { label: c.label, lines, h: chomeLabelH + lines.length * (chipH + chipGap) + 4 };
-    });
-    return rows;
-  };
-  // 高さがページより大きい町は、丁目の行で分けて「続き」にする
   const segs = [];
-  for (const b of model.blocks) {
-    const rows = prep(b);
+  for (const blk of model.blocks) {
+    const rows = blk.chomes.map((c) => {
+      const lines = flow(c.items, colW - pad * 2);
+      return { label: c.label, lines, h: chomeLabelH + lines.length * (chipH + chipGap) + 4 * f };
+    });
     const maxH = bottom - top - headH - pad * 2;
     let cur = [], used = 0, part = 0;
     for (const r of rows) {
-      if (cur.length && used + r.h > maxH) { segs.push({ block: b, rows: cur, h: headH + used + pad * 2, cont: part++ > 0 }); cur = []; used = 0; }
+      if (cur.length && used + r.h > maxH) { segs.push({ block: blk, rows: cur, h: headH + used + pad * 2, cont: part++ > 0 }); cur = []; used = 0; }
       cur.push(r); used += r.h;
     }
-    segs.push({ block: b, rows: cur, h: headH + used + pad * 2, cont: part > 0 });
+    segs.push({ block: blk, rows: cur, h: headH + used + pad * 2, cont: part > 0 });
   }
-  // ページと列に置く(いちばん低い列に、入るなら置く)
   const pages = [];
-  const newPage = () => { const pg = { cols: Array.from({ length: COLS }, () => top), items: [] }; pages.push(pg); return pg; };
+  const newPage = () => { const pg = { cols: Array.from({ length: cols }, () => top), items: [] }; pages.push(pg); return pg; };
   newPage();
   for (const sg of segs) {
     let pg = pages[pages.length - 1];
     let ci = pg.cols.indexOf(Math.min(...pg.cols));
     if (pg.cols[ci] + sg.h > bottom) {
-      // ほかの列に入るところがあるか
-      const ok = pg.cols.map((y, i) => [y, i]).filter(([y]) => y + sg.h <= bottom).sort((a, b) => a[0] - b[0])[0];
+      const ok = pg.cols.map((y, i) => [y, i]).filter(([y]) => y + sg.h <= bottom).sort((x, y) => x[0] - y[0])[0];
       if (ok) ci = ok[1]; else { pg = newPage(); ci = 0; }
     }
     pg.items.push({ sg, x: M + ci * (colW + GAP), y: pg.cols[ci] });
     pg.cols[ci] += sg.h + GAP;
   }
+  return { pages, M, colW, f, dims: { CF, chipH, chipGap, pad, headH, chomeLabelH } };
+}
+export function drawMapPages(model, { scale = 2.2 } = {}) {
+  const measure = document.createElement('canvas').getContext('2d');
+  let lay = null;
+  outer: for (let k = 0; k <= 12; k++) {
+    const f = 1 - k * 0.05;
+    for (const cols of [3, 4, 5, 6]) {
+      const t = layoutMap(model, f, cols, measure);
+      if (t.pages.length === 1) { lay = t; break outer; }
+    }
+  }
+  if (!lay) lay = layoutMap(model, 0.4, 5, measure); // どうしても入らないときだけ複数ページ
+  const { pages, M, colW, f } = lay;
+  const { CF, chipH, pad, headH, chomeLabelH, chipGap } = lay.dims;
   return pages.map((pg, pi) => {
     const cv = document.createElement('canvas');
-    cv.width = Math.round(W * scale); cv.height = Math.round(H * scale);
+    cv.width = Math.round(MAP_W * scale); cv.height = Math.round(MAP_H * scale);
     const c = cv.getContext('2d');
     c.scale(scale, scale);
-    c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+    c.fillStyle = '#fff'; c.fillRect(0, 0, MAP_W, MAP_H);
     c.textBaseline = 'alphabetic';
     c.fillStyle = '#111'; c.font = `700 22px ${FONT}`; c.fillText(model.title, M, M + 20);
-    c.fillStyle = '#444'; c.font = `13px ${FONT}`; c.fillText(model.sub, M, M + 42);
-    // 凡例と発行日
-    c.textAlign = 'right'; c.fillText(`発行日 ${model.issued}`, W - M, M + 20);
-    c.textAlign = 'left';
-    let lx = W - M - 190;
-    const legend = (fill, stroke, text) => {
-      c.fillStyle = fill; c.strokeStyle = stroke; c.lineWidth = 1;
-      c.beginPath(); c.roundRect ? c.roundRect(lx, M + 30, 30, 14, 4) : c.rect(lx, M + 30, 30, 14); c.fill(); c.stroke();
-      c.fillStyle = '#444'; c.font = `12px ${FONT}`; c.fillText(text, lx + 36, M + 42); lx += 36 + c.measureText(text).width + 12;
-    };
-    legend('#2a78d6', '#2a78d6', '未完工'); legend('#fff', '#8a8983', '完工');
-    if (pages.length > 1) { c.fillStyle = '#444'; c.textAlign = 'right'; c.font = `12px ${FONT}`; c.fillText(`${pi + 1} / ${pages.length}`, W - M, H - M + 6); c.textAlign = 'left'; }
+    if (pages.length > 1) { c.fillStyle = '#444'; c.textAlign = 'right'; c.font = `12px ${FONT}`; c.fillText(`${pi + 1} / ${pages.length}`, MAP_W - M, MAP_H - M + 6); c.textAlign = 'left'; }
+    const rr = (x, y, w, h, r) => { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); };
     for (const { sg, x, y } of pg.items) {
-      c.strokeStyle = '#f08a24'; c.lineWidth = 2.5; c.fillStyle = '#fff';
-      c.beginPath(); c.roundRect ? c.roundRect(x, y, colW, sg.h, 8) : c.rect(x, y, colW, sg.h); c.fill(); c.stroke();
-      c.fillStyle = '#111'; c.font = `700 14px ${FONT}`;
-      c.fillText(sg.block.town + (sg.cont ? '(続き)' : ''), x + pad, y + pad + 14);
-      c.fillStyle = '#555'; c.font = `12px ${FONT}`; c.textAlign = 'right';
-      c.fillText(`${sg.block.count}件` + (sg.block.open ? ` ・ 未完工${sg.block.open}` : ''), x + colW - pad, y + pad + 14); c.textAlign = 'left';
-      let yy = y + pad + headH - 6;
+      const hasOpen = sg.block.open > 0;
+      c.strokeStyle = hasOpen ? '#f08a24' : '#bdbcb6'; c.lineWidth = hasOpen ? Math.max(1.8, 2.5 * f) : 1; c.fillStyle = '#fff';
+      rr(x, y, colW, sg.h, 8 * f); c.fill(); c.stroke();
+      c.fillStyle = '#111'; c.font = `700 ${14 * f}px ${FONT}`;
+      c.fillText(sg.block.town + (sg.cont ? '(続き)' : ''), x + pad, y + pad + 14 * f);
+      let yy = y + pad + headH - 6 * f;
       for (const r of sg.rows) {
-        c.fillStyle = '#666'; c.font = `11px ${FONT}`; c.fillText(r.label, x + pad, yy + 10);
+        c.fillStyle = '#666'; c.font = `${11 * f}px ${FONT}`; c.fillText(r.label, x + pad, yy + 10 * f);
         yy += chomeLabelH;
         for (const line of r.lines) {
           for (const chip of line) {
             const cx = x + pad + chip.x;
             c.fillStyle = chip.done ? '#fff' : '#2a78d6'; c.strokeStyle = chip.done ? '#8a8983' : '#2a78d6'; c.lineWidth = 1;
-            c.beginPath(); c.roundRect ? c.roundRect(cx, yy, chip.w, chipH, 5) : c.rect(cx, yy, chip.w, chipH); c.fill(); c.stroke();
+            rr(cx, yy, chip.w, chipH, 5 * f); c.fill(); c.stroke();
             c.fillStyle = chip.done ? '#111' : '#fff'; c.font = `${chip.done ? '' : '700 '}${CF}px ${FONT}`;
-            c.fillText(chip.label, cx + 7, yy + 14);
+            c.fillText(chip.label, cx + 7 * f, yy + 14 * f);
           }
           yy += chipH + chipGap;
         }
-        yy += 4;
+        yy += 4 * f;
       }
     }
     return cv;

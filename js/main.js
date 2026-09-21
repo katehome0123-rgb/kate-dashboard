@@ -14,6 +14,7 @@ import * as annual from './screens/annual.js';
 import * as start from './screens/start.js';
 import * as ratio from './screens/ratio.js';
 import * as map from './screens/map.js';
+import * as review from './screens/review.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -26,6 +27,7 @@ const ICON = {
   annual: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4M8 14h3m2 0h3m-8 3h3',
   ratio: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
   map: 'M9 4L3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14m6-12v14',
+  review: 'M4 5h16v11H9l-5 4zM8 9h8M8 12h5',
   start: 'M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
 };
@@ -37,6 +39,7 @@ const ROUTES = [
   { id: 'analysis', label: '集客分析', mod: analysis },
   { id: 'ratio', label: '割合', mod: ratio },
   { id: 'map', label: '施工地図', mod: map },
+  { id: 'review', label: '口コミ', mod: review },
   { id: 'profit', label: '利益率', mod: profit },
   { id: 'cash', label: '入出金', mod: cash },
   { id: 'incentive', label: 'インセン', mod: incentive },
