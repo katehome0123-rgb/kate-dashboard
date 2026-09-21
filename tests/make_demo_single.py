@@ -1,6 +1,6 @@
 # 練習用の1ファイル版(ダブルクリックで開ける)を作る。架空データを埋め込み。
 import re, json, sys
-order = ['config','engine','ui','api','auth','screens/sales','screens/analysis','screens/profit','screens/cash','screens/maint','screens/incentive','screens/home','main']
+order = ['config','engine','pdf','ui','api','auth','screens/sales','screens/analysis','screens/profit','screens/cash','screens/maint','screens/incentive','screens/home','main']
 name = lambda m: 'M_' + m.replace('/', '_')
 out = []
 for m in order:

@@ -1,5 +1,6 @@
 import { h } from '../ui.js';
 import * as E from '../engine.js';
+import { incentivePdfBlob, downloadBlob } from '../pdf.js';
 
 const yen = (n) => E.fmtInt(n);
 const ymLabel = (ym) => `${ym.slice(0, 4)}年${Number(ym.slice(5, 7))}月`;
@@ -66,9 +67,17 @@ export function render(ctx) {
 
   return h('div', null,
     h('div', { class: 'head noprint' }, h('div', null, h('h1', null, 'インセン'),
-      h('div', { class: 'sub' }, '担当者と月を選んで、明細を確認・PDFにできます。金額を変えたいときは、スプレッドシートの「インセン調整」に入れてください'))),
+      h('div', { class: 'sub' }, '担当者と月を選んで、明細を確認し、PDFをダウンロードできます。金額を変えたいときは、スプレッドシートの「インセン調整」に入れてください'))),
     h('div', { class: 'controls noprint' }, personSel, monthSel,
-      h('button', { class: 'btn primary', type: 'button', onclick: () => window.print() }, 'PDFにする(印刷)')),
+      h('button', { class: 'btn primary', type: 'button', onclick: async (e) => {
+        const btn = e.currentTarget, label = btn.textContent;
+        btn.disabled = true; btn.textContent = 'PDFを作っています…';
+        try {
+          const model = { title: 'インセン明細', sub: `${ymLabel(st.month)}分(前月に入金があった案件)`, who: st.person, issued: E.todayStr().replaceAll('-', '/'), rows, total, count: rows.length };
+          downloadBlob(await incentivePdfBlob(model), `インセン明細_${st.person}_${st.month}.pdf`);
+        } catch (err) { alert('PDFを作れませんでした: ' + (err.message || err)); }
+        btn.disabled = false; btn.textContent = label;
+      } }, 'PDFをダウンロード')),
     warnRows.length ? h('p', { class: 'notice noprint', style: 'margin-bottom:12px' }, `経費が入っていない、または着地利益がマイナスの案件が${warnRows.length}件あります(備考の「※」)。金額が正しいか確認してください。`) : null,
     adjRows.length ? h('p', { class: 'small muted noprint' }, `この月は調整ありが${adjRows.length}件あります。PDFにも「調整あり」と表示されます。`) : null,
     sheet, monthTable);
