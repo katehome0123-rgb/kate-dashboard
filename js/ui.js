@@ -60,7 +60,7 @@ const niceMax = (v) => {
 };
 
 // 棒グラフ(縦・複数系列)。series=[{name, slot(1..8), values[]}]。幅に合わせて描き直す。
-export function barChart({ labels, series, unit = '万円', height = 240, tooltip }) {
+export function barChart({ labels, series, unit = '万円', height = 240, tooltip, refLine = null }) {
   const wrap = h('div', { class: 'chart' });
   const legend = series.length > 1
     ? h('div', { class: 'legend' }, series.map((se) => h('span', null, h('i', { style: `background:var(--s${se.slot})` }), se.name)))
@@ -71,7 +71,7 @@ export function barChart({ labels, series, unit = '万円', height = 240, toolti
     const W = Math.max(280, box.clientWidth || 640);
     const m = { l: 44, r: 8, t: 22, b: 26 };
     const iw = W - m.l - m.r, ih = height - m.t - m.b;
-    const max = niceMax(Math.max(...series.flatMap((se) => se.values), 0));
+    const max = niceMax(Math.max(...series.flatMap((se) => se.values), refLine ? refLine.value : 0, 0));
     const y = (v) => m.t + ih - (v / max) * ih;
     const svg = s('svg', { viewBox: `0 0 ${W} ${height}`, role: 'img', 'aria-label': series.map((x) => x.name).join('・') + 'の月別グラフ' });
     const ticks = 4;
@@ -108,6 +108,11 @@ export function barChart({ labels, series, unit = '万円', height = 240, toolti
       hit.addEventListener('blur', hideTip);
       svg.append(hit);
     });
+    if (refLine) { // 平均などの目安の線(点線)
+      const yy = y(refLine.value);
+      svg.append(s('line', { x1: m.l, x2: W - m.r, y1: yy, y2: yy, stroke: cssVar('--ink'), 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }));
+      svg.append(s('text', { x: W - m.r, y: yy - 5, 'text-anchor': 'end', 'font-size': 11, 'font-weight': 700, fill: cssVar('--ink'), stroke: cssVar('--panel'), 'stroke-width': 3, 'paint-order': 'stroke' }, refLine.label));
+    }
     svg.append(s('text', { x: 2, y: 10, 'font-size': 11, fill: cssVar('--ink2') }, `単位: ${unit}`));
     box.replaceChildren(svg);
   };

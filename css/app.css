@@ -208,6 +208,17 @@ tr.clickrow[aria-current="true"] td { background: color-mix(in srgb, var(--accen
 .futurecol { opacity: .5; }
 .negv { color: var(--bad); }
 
+/* 経費の見直し */
+.strong { font-weight: 700; }
+.okgreen { color: var(--good); }
+.gtag { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--ink2); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; }
+.ranktable td, .ranktable th { white-space: nowrap; }
+.ranktable .barcell { min-width: 150px; }
+.statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.stat .label { color: var(--ink2); font-size: 12.5px; }
+.stat .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat .note { color: var(--ink2); font-size: 12.5px; }
+
 /* 印刷(PDF): 明るい配色・A4横。メニューやボタンは出さない */
 @page { size: A4 landscape; margin: 12mm; }
 @media print {

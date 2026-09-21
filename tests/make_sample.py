@@ -83,7 +83,7 @@ def year_grid(y):
     g = [[hdr], [row('売上高', None, sales)], [row('現場支払', None, paid)], [row('入金', None, inc)],
          [row('粗利益', None, [((inc[i] or 0) - (paid[i] or 0)) for i in range(12)])]]
     fixed = [('役員報酬', 600000), ('人件費', 300000), ('家賃', 90000), ('保険・年金', 250000), ('広告費A', 120000), ('広告費B', 60000), ('ソフト利用料', 9000)]
-    var = [('ガソリン代', 30000), ('駐車場代', 20000), ('備品代', 35000), ('その他', 15000)]
+    var = [('ガソリン代', 30000), ('駐車場代', 20000), ('備品代', 35000), ('飲食費', 60000), ('その他', 15000)]
     rows = [row('固定' if i == 0 else None, n, [v if (y < 2026 or m <= 12) else None for m in months]) for i, (n, v) in enumerate(fixed)]
     rows += [row('変動' if i == 0 else None, n, [round(v * rg.uniform(0.6, 1.4), -2) if (y < 2026 or m <= 9) else 0 for m in months]) for i, (n, v) in enumerate(var)]
     tot = [sum((r[3 + i] or 0) for r in rows) for i in range(12)]

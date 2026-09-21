@@ -284,3 +284,40 @@ test('年間収支: 合計の行が項目の合計と合わない古い形式は
   assert.equal(b.months[0].net, 540);
   assert.equal(E.annualBook(d, E.enrichAll(d), 2030), null);
 });
+
+// ---- 経費の見直し(架空の数字) ----
+const spendData = () => {
+  const mk = (y, gas, food) => [
+    ['x', null, null, '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '合計'].map((v, i) => (i === 0 ? `${y}年` : v)),
+    gridRow('売上高', null, pad12([0])), gridRow('現場支払', null, pad12([0])), gridRow('入金', null, pad12([0])), gridRow('粗利益', null, pad12([0])),
+    gridRow('固定', '家賃', pad12(Array(12).fill(100))), gridRow('変動', 'ガソリン代', pad12(gas)), gridRow(null, '飲食費', pad12(food)),
+    gridRow(null, '合計', Array.from({ length: 12 }, (_, m) => 100 + (gas[m] || 0) + (food[m] || 0))),
+    gridRow('純利益', null, pad12([0])),
+  ];
+  return { 顧客: [], 設定: [], 入出金: [], 年間収支: { 2025: mk(2025, [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10], [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5]), 2026: mk(2026, [20, 10, 30, 10, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) } };
+};
+test('経費の見直し: 終わった月の数(今年は先月まで、1月だけ今月)', () => {
+  assert.equal(E.completedMonths(2026, '2026-09-21'), 8);
+  assert.equal(E.completedMonths(2026, '2026-01-15'), 1);
+  assert.equal(E.completedMonths(2025, '2026-09-21'), 12);
+});
+test('経費の見直し: 項目ごとの合計・構成比・前年同期との差', () => {
+  const d = spendData();
+  const S = E.expenseSummary(d, [], 2026, 4);
+  const gas = S.rows.find((r) => r.name === 'ガソリン代');
+  assert.equal(gas.total, 70);
+  assert.equal(gas.prev, 40);
+  assert.equal(gas.diff, 30);
+  assert.equal(S.rows.find((r) => r.name === '飲食費').total, 0);   // 今年は0でも、前年にあるので一覧には残る
+  assert.equal(S.total, 400 + 70);
+  assert.equal(S.fixed, 400);
+  assert.equal(S.variable, 70);
+  assert.equal(Math.round(gas.share * 1000), Math.round((70 / 470) * 1000));
+});
+test('経費の見直し: 月の平均・多い月・少ない月・前年の平均', () => {
+  const x = E.expenseSeries(spendData(), [], 2026, 'ガソリン代', 4);
+  assert.equal(x.avg, 17.5);
+  assert.deepEqual([x.max.month, x.max.value, x.min.month, x.min.value], [3, 30, 2, 10]);   // 同じ最少 10 は最初の月(2月)
+  assert.equal(x.prevAvg, 10);
+  assert.deepEqual(E.expenseNames(spendData(), [], 2025), ['家賃', 'ガソリン代', '飲食費']);
+});

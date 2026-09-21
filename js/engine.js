@@ -500,3 +500,56 @@ export function annualBook(data, custs, year) {
   const total = (key, upto = 12) => months.slice(0, upto).reduce((s, x) => s + x[key], 0);
   return { year, months, items, capex, standard, switchYm, total };
 }
+
+// ---- 経費の見直し(何にいくら使ったか / 月ごとの上がり下がり) -----------------
+// 今年が途中のとき、今月はまだ途中なので「終わった月」(1月〜先月)で比べる。1月だけは今月を使う。
+export function completedMonths(year, today = todayStr()) {
+  const ty = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7));
+  if (year < ty) return 12;
+  if (year > ty) return 0;
+  return tm > 1 ? tm - 1 : 1;
+}
+const sumTo = (values, n) => values.slice(0, n).reduce((s, v) => s + v, 0);
+// 固定費・変動費の項目ごとに、期間(1月〜through月)の合計・構成比・前年同期との差を出す
+export function expenseSummary(data, custs, year, through) {
+  const cur = annualBook(data, custs, year);
+  if (!cur) return null;
+  const prev = annualBook(data, custs, year - 1);
+  const map = new Map();
+  const put = (it, isPrev) => {
+    const k = `${it.group}|${it.name}`;
+    const x = map.get(k) || { group: it.group, name: it.name, total: 0, prev: 0, values: Array(12).fill(0) };
+    if (isPrev) x.prev += sumTo(it.values, through);
+    else { x.total += sumTo(it.values, through); x.values = x.values.map((v, i) => v + it.values[i]); }
+    map.set(k, x);
+  };
+  cur.items.forEach((it) => put(it, false));
+  if (prev) prev.items.forEach((it) => put(it, true));
+  const rows = [...map.values()].filter((r) => r.total !== 0 || r.prev !== 0);
+  const total = rows.reduce((s, r) => s + r.total, 0);
+  const prevTotal = rows.reduce((s, r) => s + r.prev, 0);
+  rows.forEach((r) => { r.share = total ? r.total / total : null; r.diff = prev ? r.total - r.prev : null; });
+  const by = (g) => rows.filter((r) => r.group === g).reduce((s, r) => s + r.total, 0);
+  return { year, through, hasPrev: !!prev, rows, total, prevTotal, fixed: by('固定'), variable: by('変動') };
+}
+// 1つの項目(名前で探す。固定・変動の両方にあれば合算)の月別・平均・多い月/少ない月・前年の平均
+export function expenseSeries(data, custs, year, name, through) {
+  const cur = annualBook(data, custs, year);
+  if (!cur) return null;
+  const pick = (b) => (b ? b.items.filter((i) => i.name === name).reduce((v, it) => v.map((x, m) => x + it.values[m]), Array(12).fill(0)) : null);
+  const values = pick(cur);
+  const prevBook = annualBook(data, custs, year - 1);
+  const prevValues = prevBook && prevBook.items.some((i) => i.name === name) ? pick(prevBook) : null;
+  const n = Math.max(1, through);
+  const span = values.slice(0, n);
+  let max = { month: 1, value: -Infinity }, min = { month: 1, value: Infinity };
+  span.forEach((v, i) => { if (v > max.value) max = { month: i + 1, value: v }; if (v < min.value) min = { month: i + 1, value: v }; });
+  const avg = span.reduce((s, v) => s + v, 0) / n;
+  const prevAvg = prevValues ? prevValues.reduce((s, v) => s + v, 0) / 12 : null;
+  return { name, values, prevValues, through: n, avg, max, min, prevAvg, total: sumTo(values, n) };
+}
+// 項目の名前の一覧(選択肢用)
+export const expenseNames = (data, custs, year) => {
+  const b = annualBook(data, custs, year);
+  return b ? [...new Set(b.items.filter((i) => i.values.some((v) => Math.abs(v) > 0.5)).map((i) => i.name))] : [];
+};
