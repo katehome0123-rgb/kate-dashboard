@@ -1,0 +1,341 @@
+// 計算ロジック(画面に依存しない純粋な関数だけ)。Node からもテストできます。
+// データは { 反響:[...], 顧客:[...], ... } の形。日付は 'YYYY-MM-DD' の文字列。
+
+export const COST_COLS = ['材料費', '足場発注', '職人①発注', '職人②発注', '職人③発注', '職人④発注', '駐車場代', '道路使用', '道路占用', '塗板', 'その他'];
+export const SETTLED = ['成約', '不成約']; // 成約率の分母に入る結果
+
+export const num = (v) => {
+  if (v === null || v === undefined || v === '') return 0;
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/[,，円\s]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+};
+export const yearOf = (d) => (d ? Number(String(d).slice(0, 4)) : null);
+export const monthOf = (d) => (d ? Number(String(d).slice(5, 7)) : null);
+export const ymOf = (d) => (d ? String(d).slice(0, 7) : null);
+
+// ---- 顧客の分類 -------------------------------------------------
+export const isAdd = (c) => c['集客経路'] === '追加' || /邸追/.test(String(c['顧客名'] || ''));
+export const isSub = (c) => c['集客経路'] === 'MIRAI'; // 下請け(ソーラー業者の案件)
+export const isCountable = (c) => !isAdd(c) && !isSub(c); // 契約本数に数える
+
+// 媒体グループ(既存の「利益率」シートと同じまとめ方)
+export function mediaGroup(route) {
+  const r = String(route || '').trim();
+  if (r === '訪問' || r === '足場') return '訪問';
+  if (/^(ヌリカエ|窓口|リショップ)/.test(r)) return 'ポータル';
+  return r || '(不明)';
+}
+
+// ---- 顧客ごとの数字 ---------------------------------------------
+export function enrichCustomer(c) {
+  const sales = num(c['契約金額(万円)']); // 税込・万円
+  const gross = num(c['粗利(万円・手入力)']); // 予想粗利・万円
+  const costs = COST_COLS.reduce((s, k) => s + num(c[k]), 0); // 円
+  const taxEx = (sales * 10000) / 1.1; // 円
+  return {
+    ...c,
+    _sales: sales,
+    _gross: gross,
+    _costs: costs,
+    _taxEx: taxEx,
+    _landing: taxEx - costs, // 着地利益(円)
+    _costEntered: costs > 0,
+    _done: !!c['完工日'], // 完工日が入っていない案件は経費が未確定なので、利益率には入れない
+    _year: yearOf(c['契約日']),
+    _ym: ymOf(c['契約日']),
+    _add: isAdd(c),
+    _sub: isSub(c),
+    _count: isCountable(c),
+    _group: mediaGroup(c['集客経路']),
+  };
+}
+export const enrichAll = (data) => (data['顧客'] || []).filter((c) => c['契約日']).map(enrichCustomer);
+
+// ---- 契約月ごとの集計 -------------------------------------------
+export function monthlySummary(custs, year) {
+  const rows = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1, sales: 0, gross: 0, count: 0, add: 0, sub: 0, landing: 0, noCost: 0, notDone: 0,
+  }));
+  for (const c of custs) {
+    if (c._year !== year) continue;
+    const r = rows[monthOf(c['契約日']) - 1];
+    r.sales += c._sales;
+    r.gross += c._gross;
+    r.landing += c._landing;
+    if (c._add) r.add += 1;
+    else if (c._sub) r.sub += 1;
+    else r.count += 1;
+    if (!c._costEntered) r.noCost += 1;
+    if (!c._done) r.notDone += 1;
+  }
+  return rows;
+}
+export function sumRows(rows) {
+  return rows.reduce((t, r) => {
+    for (const k of ['sales', 'gross', 'count', 'add', 'sub', 'landing', 'noCost', 'notDone']) t[k] += r[k];
+    return t;
+  }, { sales: 0, gross: 0, count: 0, add: 0, sub: 0, landing: 0, noCost: 0, notDone: 0 });
+}
+export const yearsOfCustomers = (custs) => [...new Set(custs.map((c) => c._year).filter(Boolean))].sort((a, b) => b - a);
+
+// ---- 担当者別の月次(売上・粗利・契約本数) -----------------------
+// 売上・粗利は按分: 担当Cのみ→100%、担当Cとアポ(担当A)がいる→C 40% : A 60%、担当Aだけ→A 60%(既存の売上シートと同じ)。
+// 契約本数は既存シートと同じく、共同担当の案件は二人とも1本と数える(全体は重複なし)。追加・下請けは本数に数えない。
+export const NO_PERSON = '(担当なし)';
+export function personMonthly(custs, year) {
+  const blank = () => ({ sales: 0, gross: 0, count: 0 });
+  const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, all: blank(), by: {} }));
+  const total = { all: blank(), by: {} };
+  const totals = new Map();
+  const put = (bucket, name, sales, gross, count) => {
+    const b = (bucket.by[name] ||= blank());
+    b.sales += sales; b.gross += gross; b.count += count;
+  };
+  for (const c of custs) {
+    if (c._year !== year) continue;
+    const C = c['担当C'] || '', A = c['担当A'] || '';
+    const shares = [];
+    if (C && A) shares.push([C, 0.4], [A, 0.6]);
+    else if (A) shares.push([A, 0.6]); // クロ(担当C)が空: アポの60%分だけ。残り40%は全体にだけ入る(既存の売上シートと同じ)
+    else shares.push([C || NO_PERSON, 1]);
+    const r = rows[monthOf(c['契約日']) - 1];
+    const n = c._count ? 1 : 0;
+    r.all.sales += c._sales; r.all.gross += c._gross; r.all.count += n;
+    total.all.sales += c._sales; total.all.gross += c._gross; total.all.count += n;
+    for (const [name, share] of shares) {
+      put(r, name, c._sales * share, c._gross * share, n);
+      put(total, name, c._sales * share, c._gross * share, n);
+      totals.set(name, (totals.get(name) || 0) + c._sales * share);
+    }
+  }
+  const persons = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  return { persons, rows, total };
+}
+
+// ---- 利益率(媒体グループ × 年) ----------------------------------
+// 利益率 = 着地利益の合計 ÷ 税抜売上の合計(既存の「利益率」シートと同じ式)。
+// 予想粗利率(手入力の粗利 ÷ 売上)も参考に持つ。年は契約年。
+// 媒体の行は追加・下請けを除く。追加・下請けは参考行に分け、「全体」には含める。
+// 完工日が入っていない案件は、件数(count)には数えるが利益率の計算(rate)からは外す(onlyDone=true)。
+export function profitByMedia(custs, { onlyDone = true } = {}) {
+  const years = yearsOfCustomers(custs).sort((a, b) => a - b);
+  const cell = (list, countAll = false) => {
+    const rated = onlyDone ? list.filter((c) => c._done) : list; // 利益率の計算に使う案件
+    const taxEx = rated.reduce((s, c) => s + c._taxEx, 0);
+    const landing = rated.reduce((s, c) => s + c._landing, 0);
+    const sales = rated.reduce((s, c) => s + c._sales, 0);
+    const gross = rated.reduce((s, c) => s + c._gross, 0);
+    const counted = countAll ? list : list.filter((c) => c._count);
+    return {
+      count: counted.length,
+      doneCount: countAll ? rated.length : rated.filter((c) => c._count).length,
+      sales, taxEx, landing, gross,
+      rate: taxEx ? landing / taxEx : null,
+      grossRate: sales ? gross / sales : null,
+    };
+  };
+  const build = (label, list, countAll = false) => {
+    const byYear = {};
+    for (const y of years) byYear[y] = cell(list.filter((c) => c._year === y), countAll);
+    return { group: label, byYear, total: cell(list, countAll) };
+  };
+  const main = custs.filter((c) => c._count);
+  const groups = [...new Set(main.map((c) => c._group))];
+  const rows = groups.map((g) => build(g, main.filter((c) => c._group === g))).sort((a, b) => b.total.count - a.total.count || b.total.sales - a.total.sales);
+  const extra = [];
+  const adds = custs.filter((c) => c._add);
+  const subs = custs.filter((c) => c._sub && !c._add);
+  if (adds.length) extra.push(build('追加工事', adds, true));
+  if (subs.length) extra.push(build('下請け(MIRAI)', subs, true));
+  return { years, rows, extra, all: build('全体', custs) };
+}
+// 前の年との差(ポイント)。前の年に件数が無ければ null
+export function trend(byYear, years, y) {
+  const i = years.indexOf(y);
+  if (i <= 0) return null;
+  const a = byYear[years[i - 1]];
+  if (!a || a.count === 0) return null;
+  const b = byYear[y];
+  if (!a || !b || a.rate === null || b.rate === null) return null;
+  return (b.rate - a.rate) * 100;
+}
+
+// ---- 成約率 -----------------------------------------------------
+// 成約率 = 成約 ÷ (成約 + 不成約)。年は反響日の年(訪販は反響日・現調日がないので見積日の年)。person が空なら全体。
+const leadDate = (l) => l['反響日'] || l['見積日'] || l['現調日'] || null;
+export function closingTable(leads, { year = null, person = '' } = {}) {
+  const pool = leads.filter((l) => leadDate(l) && (!year || yearOf(leadDate(l)) === year) && (!person || l['担当'] === person));
+  const tally = (list) => {
+    const win = list.filter((l) => l['結果'] === '成約').length;
+    const lose = list.filter((l) => l['結果'] === '不成約').length;
+    const pending = list.length - win - lose;
+    return { leads: list.length, win, lose, pending, rate: win + lose ? win / (win + lose) : null };
+  };
+  const order = ['自社', '訪販', 'ポータル'];
+  const sections = order.map((sec) => {
+    const inSec = pool.filter((l) => l['区分'] === sec);
+    const medias = [...new Set(inSec.map((l) => l['媒体'] || '(不明)'))];
+    const rows = medias
+      .map((m) => ({ media: m, ...tally(inSec.filter((l) => (l['媒体'] || '(不明)') === m)) }))
+      .sort((a, b) => b.leads - a.leads);
+    return { section: sec, total: tally(inSec), rows };
+  }).filter((s) => s.total.leads > 0);
+  return { total: tally(pool), sections };
+}
+export const leadYears = (leads) => [...new Set(leads.map((l) => yearOf(leadDate(l))).filter(Boolean))].sort((a, b) => b - a);
+export const leadPersons = (leads) => {
+  const m = new Map();
+  for (const l of leads) if (l['担当']) m.set(l['担当'], (m.get(l['担当']) || 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+};
+
+// ---- アラート: アフターメンテ / 案件 ---------------------------------
+// 完工日の 1か月後 / 5年後 / 10年後 が点検の予定日(1件の案件に3回)。
+// 実施日は顧客の行の「メンテ1か月」「メンテ5年」「メンテ10年」列に入れる。
+export const MAINT_KINDS = ['1か月', '5年', '10年'];
+export const maintCol = (kind) => `メンテ${kind}`;
+const pad = (n) => String(n).padStart(2, '0');
+export function addMonths(dateStr, n) {
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+  const idx = y * 12 + (m - 1) + n;
+  const ty = Math.floor(idx / 12), tm = (idx % 12) + 1;
+  const last = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
+  return `${ty}-${pad(tm)}-${pad(Math.min(d, last))}`;
+}
+export const dueDate = (doneDate, kind) => addMonths(doneDate, kind === '1か月' ? 1 : kind === '5年' ? 60 : 120);
+const utc = (d) => { const [y, m, dd] = String(d).slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, dd); };
+export const daysBetween = (a, b) => Math.round((utc(b) - utc(a)) / 86400000); // a→b の日数
+export const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// Googleマップのルート案内(目的地=住所)。スマホではマップアプリが開く
+export const mapHref = (address) => `https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=${encodeURIComponent(address)}`;
+
+export function settingValue(data, key) {
+  const row = (data['設定'] || []).find((r) => r['項目'] === key);
+  const v = row ? row['値(入力)'] : null;
+  return v === null || v === undefined || v === '' ? '' : String(v);
+}
+const settingNum = (data, key, fallback) => { const n = Number(settingValue(data, key)); return Number.isFinite(n) && settingValue(data, key) !== '' ? n : fallback; };
+
+// メンテ: 案件(顧客)ごとに1行。いちばん先の期限超過(なければ予告)の点検を代表にして、3回分の進み具合(steps)も持つ。
+export function buildMaintAlerts(data, custs, today, { soonDays = 30 } = {}) {
+  const since = settingValue(data, 'メンテ確認の開始日').slice(0, 10);
+  const urgent = [], notice = [];
+  for (const c of custs) {
+    if (c._add || c._sub || !c['完工日']) continue;
+    const steps = MAINT_KINDS.map((kind) => {
+      const due = dueDate(c['完工日'], kind);
+      const doneOn = c[maintCol(kind)] || null;
+      const over = daysBetween(due, today); // 正=予定日を過ぎた日数
+      let state = 'later';
+      if (doneOn) state = 'done';
+      else if (since && due < since) state = 'skip';
+      else if (over > 0) state = 'overdue';
+      else if (-over <= soonDays) state = 'soon';
+      return { kind, due, doneOn, state, days: over };
+    });
+    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s\u3000]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
+    const od = steps.filter((x) => x.state === 'overdue');
+    if (od.length) urgent.push({ ...base, kind: od[0].kind, due: od[0].due, days: od[0].days, others: od.length - 1 });
+    else {
+      const sn = steps.find((x) => x.state === 'soon');
+      if (sn) notice.push({ ...base, kind: sn.kind, due: sn.due, days: sn.days });
+    }
+  }
+  urgent.sort((a, b) => b.days - a.days);
+  notice.sort((a, b) => a.due.localeCompare(b.due));
+  return { urgent, notice };
+}
+
+// 案件アラート(ポータルの反響のみ。自社は現調時に見積日を決めるので対象外)
+//  ・キャンセル忘れ: 紹介日から6日目〜期限(7日)までの間、結果が空欄(何も入力していない)の案件
+//  ・見積り忘れ: 現調日から7日たっても見積日が空の案件(結果が成約・不成約のものは除く)
+export function buildLeadAlerts(data, today) {
+  const win = settingNum(data, '案件アラートの対象期間', 60);
+  const cancelDays = settingNum(data, 'ポータルのキャンセル確認日数', 6);
+  const deadline = settingNum(data, 'ポータルのキャンセル期限日数', 7);
+  const estDays = settingNum(data, '見積り忘れの確認日数', 7);
+  const estimate = [], cancel = [];
+  // 反響がすでに契約になっているか: IDではなく、同じ苗字で、反響日以後に契約した顧客がいるかで見る
+  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s\u3000]/)[0];
+  const contracts = new Map();
+  for (const c of data['顧客'] || []) {
+    const k = sur(c['顧客名']); if (!k || !c['契約日']) continue;
+    if (!contracts.has(k)) contracts.set(k, []);
+    contracts.get(k).push(c['契約日']);
+  }
+  const converted = (l) => (contracts.get(sur(l['邸名'])) || []).some((d) => d >= l['反響日']);
+  for (const l of data['反響'] || []) {
+    if (l['区分'] !== 'ポータル') continue;
+    const res = l['結果'] || '';
+    const base = { id: l['反響ID'] || `${l['邸名']}|${l['反響日']}`, name: String(l['邸名'] || ''), media: l['媒体'] || '', person: l['担当'] || '', result: res };
+    if (l['現調日'] && !l['見積日'] && res !== '成約' && res !== '不成約') {
+      const d = daysBetween(l['現調日'], today);
+      if (d >= estDays && d <= win) estimate.push({ ...base, survey: l['現調日'], days: d });
+    }
+    if (l['反響日'] && !res && !converted(l)) {
+      const d = daysBetween(l['反響日'], today);
+      if (d >= cancelDays && d <= deadline) cancel.push({ ...base, referred: l['反響日'], days: d, limit: E_addDays(l['反響日'], deadline), left: deadline - d });
+    }
+  }
+  estimate.sort((a, b) => b.days - a.days);
+  cancel.sort((a, b) => b.days - a.days);
+  return { estimate, cancel, cancelDays, deadline, estDays, win };
+}
+const E_addDays = (dateStr, n) => { const t = new Date(utc(dateStr) + n * 86400000); return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`; };
+
+// ---- 表示用 -----------------------------------------------------
+export const fmtInt = (n) => Math.round(n).toLocaleString('ja-JP');
+export const fmtMan = (n, d = 0) => (n === null || n === undefined ? '–' : n.toLocaleString('ja-JP', { minimumFractionDigits: d, maximumFractionDigits: d }));
+export const fmtPct = (r, d = 1) => (r === null || r === undefined ? '–' : (r * 100).toFixed(d) + '%');
+export const yenToMan = (yen) => yen / 10000;
+
+// ---- 入出金(総未入金・総未出金・案件ごとの残り) ----------------------
+// 対象 = 顧客シートで「入金日」が空の案件(工事が終わっていない・入金が済んでいない案件)。
+// 入出金シートの「顧客名」は 苗字+邸(同じ苗字の対象が2件あるときだけ 山田邸(太郎) のように名前つき)。
+const splitName = (full) => String(full || '').replace(/　/g, ' ').trim().split(/\s+/);
+export function leadingName(full) { // 苗字+邸(すでに邸が付いていればそのまま)
+  const first = splitName(full)[0] || '';
+  return first ? (first.includes('邸') ? first : first + '邸') : '';
+}
+// 住所から地域を出す: 「江戸川区東小岩5-15-9」→「東小岩」(区の後ろ〜最初の数字まで)。区がなければ 県の後ろ(市名から)。
+export function regionOf(addr) {
+  const a = String(addr || '').trim();
+  if (!a) return '';
+  let rest;
+  if (a.includes('区')) rest = a.slice(a.indexOf('区') + 1);
+  else if (a.includes('県') && a.indexOf('県') < 4) rest = a.slice(a.indexOf('県') + 1);
+  else rest = a.replace('東京都', '');
+  const m = rest.search(/[0-9０-９]/);
+  return (m >= 0 ? rest.slice(0, m) : rest).trim();
+}
+export function cashBook(data) {
+  const ledger = (data['入出金'] || []).filter((r) => r['顧客名'] || num(r['金額(円)']));
+  const targets = (data['顧客'] || []).filter((c) => c['顧客名'] && !c['入金日']).map((c) => ({ c, key: leadingName(c['顧客名']) }));
+  const dup = {};
+  targets.forEach((t) => { dup[t.key] = (dup[t.key] || 0) + 1; });
+  const cases = targets.map(({ c, key }) => {
+    const rest = splitName(c['顧客名']).slice(1).join(' ');
+    const name = dup[key] > 1 && rest ? `${key}(${rest})` : key;
+    const mine = ledger.filter((r) => r['顧客名'] === name && (!r['日付'] || !c['契約日'] || String(r['日付']) >= String(c['契約日'])));
+    const sum = (kind) => mine.filter((r) => r['種別'] === kind).reduce((s, r) => s + num(r['金額(円)']), 0);
+    const contract = num(c['契約金額(万円)']) * 10000;
+    const ordered = ['足場発注', '職人①発注', '職人②発注', '職人③発注', '職人④発注'].reduce((s, k) => s + num(c[k]), 0);
+    const paidIn = sum('入金'), paidOut = sum('出金');
+    return {
+      name, region: regionOf(c['住所']), contractDate: c['契約日'] || null, start: c['着工日'] || null, done: c['完工日'] || null,
+      contract, paidIn, unpaidIn: contract - paidIn, ordered, paidOut, unpaidOut: ordered - paidOut,
+      entries: mine,
+      settled: contract - paidIn <= 0 && ordered - paidOut <= 0, // 入金も出金も残りなし
+    };
+  }).sort((a, b) => String(a.contractDate).localeCompare(String(b.contractDate)));
+  // 顧客シートにない名前(打ち間違い)を見つける。入金日が入って対象から外れた案件の名前は、間違いではない。
+  const known = new Set();
+  (data['顧客'] || []).forEach((c) => { const k = leadingName(c['顧客名']); if (k) { known.add(k); const r = splitName(c['顧客名']).slice(1).join(' '); if (r) known.add(`${k}(${r})`); } });
+  const unknown = [...new Set(ledger.map((r) => r['顧客名'] || '(顧客名なし)').filter((n) => n === '(顧客名なし)' || !known.has(n)))];
+  return {
+    cases,
+    totalUnpaidIn: cases.reduce((s, c) => s + c.unpaidIn, 0),
+    totalUnpaidOut: cases.reduce((s, c) => s + c.unpaidOut, 0),
+    ledger, unknown,
+  };
+}
