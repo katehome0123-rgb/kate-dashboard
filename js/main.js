@@ -17,6 +17,7 @@ import * as map from './screens/map.js';
 import * as review from './screens/review.js';
 import * as ranking from './screens/ranking.js';
 import * as customers from './screens/customers.js';
+import * as flyer from './screens/flyer.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -32,6 +33,7 @@ const ICON = {
   review: 'M4 5h16v11H9l-5 4zM8 9h8M8 12h5',
   ranking: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3',
   customers: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 3.6-7 8-7s8 3 8 7',
+  flyer: 'M4 4h13l3 4-3 4H4zM4 12v8m0-4h8',
   start: 'M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
 };
@@ -46,6 +48,7 @@ const ROUTES = [
   { id: 'review', label: '口コミ', mod: review },
   { id: 'ranking', label: 'ランキング', mod: ranking },
   { id: 'customers', label: '顧客', mod: customers },
+  { id: 'flyer', label: 'チラシ', mod: flyer },
   { id: 'profit', label: '利益率', mod: profit },
   { id: 'cash', label: '入出金', mod: cash },
   { id: 'incentive', label: 'インセン', mod: incentive },

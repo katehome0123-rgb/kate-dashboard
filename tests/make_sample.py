@@ -118,5 +118,27 @@ def year_grid(y):
     rows.append(row('純利益', None, net))
     return [r for grp in g for r in grp] + rows
 year_sheets = {'2025': year_grid(2025), '2026': year_grid(2026)}
-json.dump({'反響': leads, '顧客': custs, '入出金': ledger, '年間収支': year_sheets, '経費データ': [], 'チラシ折込': [], '職人マスター': master, '設定': [{'項目': '年間収支の切替月', '値(入力)': '2026-08'}, {'項目': 'メンテ確認の開始日', '値(入力)': '2026-01-01'}, {'項目': '案件アラートの対象期間', '値(入力)': 60}, {'項目': 'ポータルのキャンセル確認日数', '値(入力)': 6}, {'項目': 'ポータルのキャンセル期限日数', '値(入力)': 7}, {'項目': '見積り忘れの確認日数', '値(入力)': 7}], 'インセン調整': adj}, open('data/sample.json','w',encoding='utf-8'), ensure_ascii=False)
+# チラシ・折込の見本(架空)。直近の数回は結果(売上・利益・反響件数など)がまだ空欄という状態も混ぜる
+frng = random.Random(41)
+flyers = []
+for y, months in [(2025, range(1, 13)), (2026, range(1, 10))]:
+    for m in months:
+        if frng.random() < 0.55: continue
+        for media, agencies in [('チラシ', ['サンプル代理店', 'デモ広告']), ('折込', ['サンプル代理店', None])]:
+            if frng.random() < 0.3: continue
+            count = frng.choice([25000, 40000, 45000, 70000, 75000])
+            budget = round(count * frng.uniform(9.5, 11.5))
+            pending = (y == 2026 and m >= 8) and frng.random() < 0.6
+            row = {'年': y, '月': m, '予算(円)': budget, '枚数': count, '媒体': media, '委託業者': frng.choice(agencies)}
+            if pending:
+                row.update({'売上(円)': None, '利益(円)': None, '反響エリア': None, '反響件数': None, '成約件数': None})
+            else:
+                leads_n = frng.choice([0, 1, 1, 2, 2, 3])
+                deals_n = min(leads_n, frng.choice([0, 0, 1, 1, 1, 2])) if leads_n else 0
+                sales_v = deals_n * frng.choice([650000, 800000, 950000, 1100000, 1350000]) if deals_n else 0
+                profit_v = round(sales_v * frng.uniform(0.28, 0.42)) if sales_v else 0
+                row.update({'売上(円)': sales_v or None, '利益(円)': profit_v or None,
+                             '反響エリア': f'サンプル町、見本台' if leads_n else None, '反響件数': leads_n or None, '成約件数': deals_n or None})
+            flyers.append(row)
+json.dump({'反響': leads, '顧客': custs, '入出金': ledger, '年間収支': year_sheets, '経費データ': [], 'チラシ折込': flyers, '職人マスター': master, '設定': [{'項目': '年間収支の切替月', '値(入力)': '2026-08'}, {'項目': 'メンテ確認の開始日', '値(入力)': '2026-01-01'}, {'項目': '案件アラートの対象期間', '値(入力)': 60}, {'項目': 'ポータルのキャンセル確認日数', '値(入力)': 6}, {'項目': 'ポータルのキャンセル期限日数', '値(入力)': 7}, {'項目': '見積り忘れの確認日数', '値(入力)': 7}], 'インセン調整': adj}, open('data/sample.json','w',encoding='utf-8'), ensure_ascii=False)
 print(len(leads), len(custs))

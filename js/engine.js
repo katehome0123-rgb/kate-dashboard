@@ -939,3 +939,48 @@ export function customerSections(c) {
   if (rest.length) out.push({ title: 'その他', rows: rest.map((k) => ({ label: k, value: c[k], kind: kindOf(k, c[k]) })) });
   return out;
 }
+
+// ---- チラシ・折込(媒体ごとの予算・枚数・反響・成約) ----------------------------
+// 売上・利益・反響件数・成約件数は、結果がまだ出ていない配布は空欄(null)のまま扱う(0円と混同しない)
+export function flyerRows(data) {
+  return (data['チラシ折込'] || []).map((r) => {
+    const budget = num(r['予算(円)']);
+    const count = num(r['枚数']);
+    const sales = isEmpty(r['売上(円)']) ? null : num(r['売上(円)']);
+    const profit = isEmpty(r['利益(円)']) ? null : num(r['利益(円)']);
+    const leads = isEmpty(r['反響件数']) ? null : num(r['反響件数']);
+    const deals = isEmpty(r['成約件数']) ? null : num(r['成約件数']);
+    return {
+      year: Number(r['年']) || 0, month: Number(r['月']) || 0, media: String(r['媒体'] || '').trim(),
+      budget, count, sales, profit, agency: r['委託業者'] || '', area: r['反響エリア'] || '', leads, deals,
+      unit: count ? budget / count : null,
+      roi: budget && profit !== null ? profit / budget : null,
+      rate: leads && deals !== null ? deals / leads : null, // 反響があっても成約件数が未入力ならnull(0%と混同しない)
+    };
+  }).sort((a, b) => (b.year - a.year) || (b.month - a.month) || a.media.localeCompare(b.media, 'ja'));
+}
+export const flyerYears = (rows) => [...new Set(rows.map((r) => r.year).filter(Boolean))].sort((a, b) => b - a);
+// 媒体ごとの集計(年を指定すればその年だけ、指定なければ累計)。売上等はデータがある配布だけで合計する
+export function flyerSummary(rows, { year = 0 } = {}) {
+  const use = year ? rows.filter((r) => r.year === year) : rows;
+  const line = (list) => {
+    const budget = list.reduce((s, r) => s + r.budget, 0);
+    const count = list.reduce((s, r) => s + r.count, 0);
+    const withSales = list.filter((r) => r.sales !== null), withProfit = list.filter((r) => r.profit !== null);
+    const withLeads = list.filter((r) => r.leads !== null);
+    const withBoth = list.filter((r) => r.leads !== null && r.deals !== null); // 成約率は、反響・成約とも入力済みの回だけで数える
+    const sales = withSales.length ? withSales.reduce((s, r) => s + r.sales, 0) : null;
+    const profit = withProfit.length ? withProfit.reduce((s, r) => s + r.profit, 0) : null;
+    const leads = withLeads.length ? withLeads.reduce((s, r) => s + r.leads, 0) : null;
+    const deals = withBoth.length ? withBoth.reduce((s, r) => s + r.deals, 0) : null;
+    const leadsForRate = withBoth.length ? withBoth.reduce((s, r) => s + r.leads, 0) : 0;
+    return {
+      n: list.length, budget, count, unit: count ? budget / count : null, sales, profit,
+      roi: budget && profit !== null ? profit / budget : null, leads, deals,
+      rate: leadsForRate ? deals / leadsForRate : null,
+    };
+  };
+  const groups = [...new Set(use.map((r) => r.media))];
+  const rowsOut = groups.map((g) => ({ name: g, ...line(use.filter((r) => r.media === g)) })).sort((a, b) => b.budget - a.budget);
+  return { rows: rowsOut, total: { name: '合計', ...line(use) } };
+}

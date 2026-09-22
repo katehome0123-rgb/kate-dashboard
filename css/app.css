@@ -315,3 +315,7 @@ a.chip:hover { filter: brightness(0.95); }
 .cd-foot { padding: 10px 16px 14px; background: var(--panel); }
 body.noscroll { overflow: hidden; }
 @media (min-width: 821px) { .cd-back { align-items: center; } .cd-box { border-radius: 16px; } .cd-head { border-radius: 16px 16px 0 0; } }
+
+/* ---- チラシ・折込 ---- */
+.flyerrow { border-bottom: 1px solid var(--line); padding: 11px 4px; }
+.flyerrow:last-child { border-bottom: 0; }

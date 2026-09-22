@@ -609,3 +609,37 @@ test('顧客一覧: 検索(言葉ぜんぶ・電話のハイフン無視)・区�
   assert.equal(sec.find((x) => x.title === '金額(契約)').rows.at(-1).label, '着地利益');
   assert.equal(E.customerSections(custs[2]).at(-1).title, 'その他'); // どの見出しにも入らない列は「その他」に
 });
+
+test('チラシ・折込: 単価・ROI・成約率、媒体ごとの集計(結果が出ていない配布は0円扱いにしない)', () => {
+  const data = { チラシ折込: [
+    { 年: 2026, 月: 2, '予算(円)': 700000, 枚数: 50000, 媒体: 'チラシ', '売上(円)': 800000, '利益(円)': 400000, 委託業者: null, 反響エリア: 'A町', 反響件数: 2, 成約件数: 1 },
+    { 年: 2026, 月: 3, '予算(円)': 400000, 枚数: 25000, 媒体: '折込', '売上(円)': null, '利益(円)': null, 委託業者: 'X社', 反響エリア: null, 反響件数: null, 成約件数: null },
+    { 年: 2026, 月: 5, '予算(円)': 500000, 枚数: 70000, 媒体: 'チラシ', '売上(円)': 2800000, '利益(円)': 1100000, 委託業者: 'Y社', 反響エリア: 'B町', 反響件数: 2, 成約件数: 2 },
+    { 年: 2025, 月: 6, '予算(円)': 300000, 枚数: 40000, 媒体: 'チラシ', '売上(円)': 900000, '利益(円)': 300000, 委託業者: null, 反響エリア: 'C町', 反響件数: 1, 成約件数: 1 },
+    { 年: 2026, 月: 7, '予算(円)': 470000, 枚数: 75000, 媒体: '折込', '売上(円)': null, '利益(円)': null, 委託業者: 'X社', 反響エリア: '南篠崎町', 反響件数: 3, 成約件数: null },
+  ] };
+  const rows = E.flyerRows(data);
+  assert.equal(rows.length, 5);
+  assert.deepEqual(rows.map((r) => `${r.year}-${r.month}-${r.media}`), ['2026-7-折込', '2026-5-チラシ', '2026-3-折込', '2026-2-チラシ', '2025-6-チラシ']); // 新しい順
+  const jul = rows.find((r) => r.month === 7);
+  assert.equal(jul.leads, 3); assert.equal(jul.deals, null); assert.equal(jul.rate, null); // 反響はあっても成約件数が未入力ならnull(0%扱いにしない)
+  const feb = rows.find((r) => r.month === 2);
+  assert.equal(feb.unit, 14); // 70万円÷5万枚
+  assert.ok(Math.abs(feb.roi - (400000 / 700000)) < 1e-9);
+  assert.equal(feb.rate, 0.5); // 2件反響・1件成約
+  const mar = rows.find((r) => r.month === 3);
+  assert.equal(mar.sales, null); assert.equal(mar.roi, null); assert.equal(mar.rate, null); // 結果未確定はnullのまま
+  assert.deepEqual(E.flyerYears(rows), [2026, 2025]);
+  const sum2026 = E.flyerSummary(rows, { year: 2026 });
+  const chirashi = sum2026.rows.find((r) => r.name === 'チラシ');
+  assert.equal(chirashi.n, 2); assert.equal(chirashi.budget, 1200000); assert.equal(chirashi.count, 120000);
+  assert.equal(chirashi.sales, 3600000); assert.equal(chirashi.profit, 1500000);
+  assert.equal(chirashi.leads, 4); assert.equal(chirashi.deals, 3);
+  const orikomi = sum2026.rows.find((r) => r.name === '折込');
+  assert.equal(orikomi.sales, null); assert.equal(orikomi.roi, null); // 結果がまだない月だけの媒体
+  assert.equal(orikomi.leads, 3); assert.equal(orikomi.deals, null); assert.equal(orikomi.rate, null); // 成約件数が1件も揃っていないので成約率もnull
+  assert.equal(sum2026.total.budget, 2070000);
+  const all = E.flyerSummary(rows);
+  assert.equal(all.total.n, 5);
+  assert.equal(all.rows.find((r) => r.name === 'チラシ').budget, 1500000); // 累計(年指定なし)
+});

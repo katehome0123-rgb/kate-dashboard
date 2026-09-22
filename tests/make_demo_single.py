@@ -1,6 +1,6 @@
 # 練習用の1ファイル版(ダブルクリックで開ける)を作る。架空データを埋め込み。
 import re, json, sys
-order = ['config','engine','pdf','ui','api','auth','screens/persontable','screens/sales','screens/start','screens/ratio','screens/map','screens/review','screens/ranking','screens/customers','screens/analysis','screens/profit','screens/cash','screens/maint','screens/incentive','screens/annual','screens/home','main']
+order = ['config','engine','pdf','ui','api','auth','screens/persontable','screens/sales','screens/start','screens/ratio','screens/map','screens/review','screens/ranking','screens/customers','screens/flyer','screens/analysis','screens/profit','screens/cash','screens/maint','screens/incentive','screens/annual','screens/home','main']
 name = lambda m: 'M_' + m.replace('/', '_')
 out = []
 for m in order:
@@ -11,7 +11,7 @@ for m in order:
         names, path = mm.group(1), mm.group(2)
         target = name(re.sub(r'^(\./|\.\./|\./screens/)', '', path[:-3]).replace('screens/', 'screens/') if False else path)
         mod = path.replace('../', '').replace('./', '')[:-3]
-        if mod in ('sales','persontable','start','ratio','map','review','ranking','customers','analysis','profit','cash','maint','incentive','annual','home'): mod = 'screens/' + mod
+        if mod in ('sales','persontable','start','ratio','map','review','ranking','customers','flyer','analysis','profit','cash','maint','incentive','annual','home'): mod = 'screens/' + mod
         t = name(mod)
         if names.startswith('* as'): return f'const {names[5:]} = {t};'
         return f'const {names} = {t};'
