@@ -803,3 +803,139 @@ export function reviewList(custs, { filter = 'all', onlyDone = false, today = to
       route: c['集客経路'] || '', person: [c['担当C'], c['担当A']].filter(Boolean).join('・'), address: c['住所'] || '',
     }));
 }
+
+
+// ---- 職人ランキング(塗装職人への発注額。年=契約年) ----------------------------------
+// 職人①〜④のうち、職人マスターで種別が「塗装」の会社だけを数える(足場屋・塗装以外は除く)。
+// 表記ゆれは、マスターの「正しい名前」に寄せる。マスターにない名前は、職人①なら塗装として数えて「未登録」と知らせる。
+const CIRC = ['①', '②', '③', '④']; // 顧客シートの列名(職人①…・外壁①…)
+export function craftsmanRanking(data, custs, { year = null } = {}) {
+  const master = new Map((data['職人マスター'] || []).map((r) => [String(r['職人名(会社名)'] || '').trim(), r]));
+  const canon = (n) => { const r = master.get(n); const c = r && String(r['正しい名前(表記ゆれの場合)'] || '').trim(); return c || n; };
+  const typeOf = (n) => { const r = master.get(n) || master.get(canon(n)); return r ? String(r['種別'] || '').trim() : null; };
+  const m = new Map();
+  const unregistered = new Set();
+  for (const c of custs) {
+    if (year && c._year !== year) continue;
+    const seen = new Set();
+    for (let i = 1; i <= 4; i++) {
+      const raw = String(c[`職人${CIRC[i - 1]}`] || '').trim();
+      if (!raw) continue;
+      const name = canon(raw);
+      let t = typeOf(name);
+      if (t === null) { if (i !== 1) continue; t = '塗装'; unregistered.add(name); }
+      if (t !== '塗装') continue;
+      const x = m.get(name) || { name, amount: 0, jobs: 0 };
+      x.amount += num(c[`職人${CIRC[i - 1]}発注`]);
+      if (!seen.has(name)) { x.jobs += 1; seen.add(name); }
+      m.set(name, x);
+    }
+  }
+  const rows = [...m.values()].sort((a, b) => b.amount - a.amount || b.jobs - a.jobs);
+  const total = rows.reduce((t, r) => t + r.amount, 0);
+  return { rows: rows.map((r, i) => ({ ...r, rank: i + 1, share: total ? r.amount / total : 0, avg: r.jobs ? r.amount / r.jobs : 0 })), total, unregistered: [...unregistered] };
+}
+export const craftsmanYears = (custs) => yearsOfCustomers(custs);
+
+// ---- カラーランキング(外壁色・屋根色・カバー色。年=契約年) ---------------------------
+// 外壁色: 外壁①〜④(品番・色名)。艶の指定((艶消)・(3分艶)など)は除いて数える。
+// 屋根色: 屋根材が カバー材(スーパーガルテクト / フックシングル / エコグラーニ)なら「カバー色」、それ以外は「屋根色」に数える。
+export const COVER_MATERIALS = ['スーパーガルテクト', 'フックシングル', 'エコグラーニ'];
+export const isCoverRoof = (c) => COVER_MATERIALS.some((k) => String(c['屋根材'] || '').includes(k));
+export function normColor(v) {
+  return String(v ?? '').normalize('NFKC')
+    .replace(/\([^)]*艶[^)]*\)/g, '')
+    .replace(/\s*[0-9]*分?艶(消し?|有り?|あり)?\s*$/, '')
+    .replace(/\s+/g, ' ').trim();
+}
+export function colorRanking(custs, { year = null } = {}) {
+  const buckets = { wall: new Map(), roof: new Map(), cover: new Map() };
+  const put = (b, name) => { if (name) buckets[b].set(name, (buckets[b].get(name) || 0) + 1); };
+  for (const c of custs) {
+    if (year && c._year !== year) continue;
+    const walls = new Set([1, 2, 3, 4].map((i) => normColor(c[`外壁${CIRC[i - 1]}`])).filter(Boolean));
+    walls.forEach((n) => put('wall', n));
+    put(isCoverRoof(c) ? 'cover' : 'roof', normColor(c['屋根色']));
+  }
+  const fin = (m) => {
+    const total = [...m.values()].reduce((t, v) => t + v, 0);
+    const rows = [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ja')).map(([name, count], i) => ({ name, count, rank: i + 1, share: total ? count / total : 0 }));
+    return { rows, total };
+  };
+  return { wall: fin(buckets.wall), roof: fin(buckets.roof), cover: fin(buckets.cover) };
+}
+
+
+// ---- 顧客一覧(検索・絞り込み・詳細) -------------------------------------------------
+// 状態: 着工日が空か先なら「未着工」、着工日が今日以前で完工日が空なら「施工中」、完工日があれば「完工済み」。
+export function customerStatus(c, today = todayStr()) {
+  if (c['完工日']) return '完工済み';
+  if (c['着工日'] && String(c['着工日']).slice(0, 10) <= today) return '施工中';
+  return '未着工';
+}
+export const customerKey = (c) => `${String(c['契約日'] || '').slice(0, 10)}|${c['顧客名'] || ''}|${c['住所'] || ''}`;
+const fold = (v) => String(v ?? '').normalize('NFKC').toLowerCase().replace(/[\s　\-‐‑–—ー−]/g, '');
+// 顧客の一覧から、選べる区市・集客経路・担当・契約年を拾う(件数の多い順)
+export function customerFacets(custs) {
+  const count = (list) => { const m = new Map(); for (const v of list) if (v) m.set(v, (m.get(v) || 0) + 1); return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n })); };
+  return {
+    cities: count(custs.map((c) => parseAddress(c['住所']).city)),
+    routes: count(custs.map((c) => String(c['集客経路'] || '').trim())),
+    persons: count(custs.flatMap((c) => [c['担当C'], c['担当A']])),
+    years: [...new Set(custs.map((c) => c._year).filter(Boolean))].sort((a, b) => b - a),
+  };
+}
+// 検索: q は空白で区切った言葉がすべて含まれるもの(顧客名・住所・電話・工事内容・集客経路・担当・色・材料など、行のすべての文字から探す)
+// status: '' | '未着工' | '施工中' | '完工済み' | '入金待ち'(完工済みで入金日が空)
+export function customerSearch(custs, { q = '', city = '', route = '', person = '', year = 0, status = '' } = {}, today = todayStr()) {
+  const words = fold(q).length ? String(q).normalize('NFKC').split(/[\s　]+/).map(fold).filter(Boolean) : [];
+  return custs.filter((c) => {
+    if (city && parseAddress(c['住所']).city !== city) return false;
+    if (route && String(c['集客経路'] || '').trim() !== route) return false;
+    if (person && c['担当C'] !== person && c['担当A'] !== person) return false;
+    if (year && c._year !== year) return false;
+    if (status) {
+      const st = customerStatus(c, today);
+      if (status === '入金待ち' ? !(st === '完工済み' && !c['入金日']) : st !== status) return false;
+    }
+    if (words.length) {
+      const hay = fold(Object.entries(c).filter(([k]) => !k.startsWith('_')).map(([, v]) => v).join(' '));
+      if (!words.every((w) => hay.includes(w))) return false;
+    }
+    return true;
+  }).sort((a, b) => String(b['契約日']).localeCompare(String(a['契約日'])));
+}
+// 詳細画面用: 顧客の行を見出しごとにまとめる(値が入っているものだけ)。kind: yen | man | date | tel | addr | text
+const SECTIONS = [
+  ['基本', ['顧客名', '契約日', '集客経路', '担当C', '担当A', '年齢', '性別', '築年数']],
+  ['連絡先', ['住所', '電話番号①', '電話番号②']],
+  ['工事内容', ['工事内容', '外壁種類', '外壁材', '屋根材', '防水', '外壁①', '外壁②', '外壁③', '外壁④', '屋根色']],
+  ['日程', ['着工日', '完工日', '入金日', '口コミ', 'メンテ1か月', 'メンテ5年', 'メンテ10年']],
+  ['金額(契約)', ['契約金額(万円)', '__gross']],
+  ['経費(円)', ['材料費', '足場屋', '足場発注', '職人①', '職人①発注', '職人②', '職人②発注', '職人③', '職人③発注', '職人④', '職人④発注', '駐車場代', '道路使用', '道路占用', '塗板', 'その他']],
+];
+const YEN_KEYS = new Set(['材料費', '足場発注', '職人①発注', '職人②発注', '職人③発注', '職人④発注', '駐車場代', '道路使用', '道路占用', '塗板', 'その他']);
+const isEmpty = (v) => v === null || v === undefined || v === '';
+export function customerSections(c) {
+  const grossKey = Object.keys(c).find((k) => k.includes('粗利') && !k.startsWith('_'));
+  const used = new Set();
+  const kindOf = (k, v) => (k === '住所' ? 'addr' : /^電話/.test(k) ? 'tel' : YEN_KEYS.has(k) ? 'yen' : k === '契約金額(万円)' || k === grossKey ? 'man' : /^\d{4}-\d{2}-\d{2}/.test(String(v)) ? 'date' : 'text');
+  const out = [];
+  for (const [title, keys] of SECTIONS) {
+    const rows = [];
+    for (const k0 of keys) {
+      const k = k0 === '__gross' ? grossKey : k0;
+      if (!k || !(k in c) || isEmpty(c[k])) continue;
+      used.add(k);
+      rows.push({ label: k, value: c[k], kind: kindOf(k, c[k]) });
+    }
+    if (title === '金額(契約)') {
+      rows.push({ label: '税抜金額', value: Math.round(c._taxEx), kind: 'yen' });
+      if (c._costEntered) { rows.push({ label: '経費の合計', value: Math.round(c._costs), kind: 'yen' }); rows.push({ label: '着地利益', value: Math.round(c._landing), kind: 'yen' }); }
+    }
+    if (rows.length) out.push({ title, rows });
+  }
+  const rest = Object.keys(c).filter((k) => !k.startsWith('_') && !used.has(k) && !isEmpty(c[k]) && !/^顧客ID$/.test(k));
+  if (rest.length) out.push({ title: 'その他', rows: rest.map((k) => ({ label: k, value: c[k], kind: kindOf(k, c[k]) })) });
+  return out;
+}

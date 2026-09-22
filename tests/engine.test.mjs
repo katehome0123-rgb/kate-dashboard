@@ -542,3 +542,70 @@ test('口コミ: 〇がある契約の割合と何人に1人(追加・下請け�
   assert.ok(E.placeHref('江戸川区東小岩3-1-1').startsWith('https://www.google.com/maps/search/?api=1&query=%E6%B1%9F'));
   assert.equal(E.reviewStats([]).all.oneIn, null);
 });
+
+test('職人ランキング: 塗装の職人だけ。表記ゆれはマスターの正しい名前に寄せる。年は契約年', () => {
+  const data = { 職人マスター: [
+    { '職人名(会社名)': 'A塗装', 種別: '塗装' }, { '職人名(会社名)': 'B塗装', 種別: '塗装' }, { '職人名(会社名)': 'B塗そう', 種別: '塗装', '正しい名前(表記ゆれの場合)': 'B塗装' },
+    { '職人名(会社名)': 'C板金', 種別: 'その他(塗装以外)' }, { '職人名(会社名)': 'D足場', 種別: '足場' },
+  ], 顧客: [
+    { 契約日: '2025-05-01', '職人①': 'A塗装', '職人①発注': 300000, '職人②': 'C板金', '職人②発注': 90000 },
+    { 契約日: '2025-06-01', '職人①': 'B塗そう', '職人①発注': 500000 },
+    { 契約日: '2026-01-01', '職人①': 'B塗装', '職人①発注': 200000, '職人②': 'A塗装', '職人②発注': 50000 },
+    { 契約日: '2026-02-01', '職人①': '新しい塗装', '職人①発注': 10000, '職人②': '未登録の②', '職人②発注': 99999 },
+    { 契約日: '2026-03-01', '職人①': 'D足場', '職人①発注': 999999 },
+  ] };
+  const custs = E.enrichAll(data);
+  const all = E.craftsmanRanking(data, custs);
+  assert.deepEqual(all.rows.map((r) => [r.name, r.amount, r.jobs]), [['B塗装', 700000, 2], ['A塗装', 350000, 2], ['新しい塗装', 10000, 1]]);
+  assert.deepEqual(all.unregistered, ['新しい塗装']); // マスターにない職人①だけ塗装扱い(職人②の未登録・足場は除外)
+  assert.equal(all.rows[0].rank, 1); assert.equal(all.rows[0].avg, 350000);
+  const y25 = E.craftsmanRanking(data, custs, { year: 2025 });
+  assert.deepEqual(y25.rows.map((r) => [r.name, r.amount]), [['B塗装', 500000], ['A塗装', 300000]]);
+});
+
+test('カラーランキング: 艶の指定は除く。カバー材の屋根色はカバー色に分ける', () => {
+  assert.equal(E.normColor('75-30B(艶消)'), '75-30B');
+  assert.equal(E.normColor('15-30D（3分艶）'), '15-30D');
+  assert.equal(E.normColor(' N-40  3分艶'), 'N-40');
+  assert.equal(E.normColor('チャコール'), 'チャコール');
+  const custs = E.enrichAll({ 顧客: [
+    { 契約日: '2025-01-01', '外壁①': '75-30B(艶消)', '外壁②': 'チャコール', 屋根色: 'アンバーブラウン', 屋根材: 'ダイナミックルーフ遮熱' },
+    { 契約日: '2025-02-01', '外壁①': '75-30B', '外壁②': '75-30B(艶消)', 屋根色: 'カーボングレー', 屋根材: 'スーパーガルテクト' }, // ①②が同じ色でも1件と数える
+    { 契約日: '2026-01-01', '外壁①': 'チャコール', 屋根色: 'アンバーブラウン', 屋根材: 'フックシングル' },
+  ] });
+  const r = E.colorRanking(custs);
+  assert.deepEqual(r.wall.rows.map((x) => [x.name, x.count]), [['75-30B', 2], ['チャコール', 2]]);
+  assert.deepEqual(r.roof.rows.map((x) => [x.name, x.count]), [['アンバーブラウン', 1]]);
+  assert.deepEqual(r.cover.rows.map((x) => [x.name, x.count]), [['アンバーブラウン', 1], ['カーボングレー', 1]]);
+  assert.equal(r.wall.total, 4);
+  assert.equal(E.colorRanking(custs, { year: 2026 }).wall.rows.length, 1);
+});
+
+test('顧客一覧: 検索(言葉ぜんぶ・電話のハイフン無視)・区市/担当/年/状態で絞る・詳細の見出し分け', () => {
+  const custs = E.enrichAll({ 顧客: [
+    { 契約日: '2026-01-10', 顧客名: '甲野　太郎', 住所: '江戸川区東小岩3-1-1', '電話番号①': '03-1234-5678', 担当C: '塩', 集客経路: '訪問', '契約金額(万円)': 110, '粗利(万円・手入力)': 30, 着工日: '2026-02-01', 完工日: '2026-03-01', 工事内容: '外壁屋根塗装', 材料費: 300000 },
+    { 契約日: '2026-05-10', 顧客名: '乙川　花子', 住所: '葛飾区亀有1-1-1', '電話番号①': '090-1111-2222', 担当C: '塩', 担当A: '佳', 集客経路: 'ヌリカエ', '契約金額(万円)': 100, 着工日: '2026-09-01', 入金日: null },
+    { 契約日: '2025-05-10', 顧客名: '丙山　次郎', 住所: '江戸川区南小岩2-2-2', 担当C: '佳', 集客経路: '訪問', '契約金額(万円)': 90, 着工日: '2027-01-01', メモ: '犬がいる' },
+  ] });
+  const today = '2026-09-19';
+  assert.deepEqual(custs.map((c) => E.customerStatus(c, today)), ['完工済み', '施工中', '未着工']);
+  assert.equal(E.customerSearch(custs, {}, today).length, 3);
+  assert.deepEqual(E.customerSearch(custs, {}, today).map((c) => c['顧客名']), ['乙川　花子', '甲野　太郎', '丙山　次郎']); // 契約日の新しい順
+  assert.equal(E.customerSearch(custs, { q: '03 1234 5678' }, today).length, 1); // 電話は空白・ハイフンを無視
+  assert.equal(E.customerSearch(custs, { q: '0312345678' }, today).length, 1);
+  assert.equal(E.customerSearch(custs, { q: '東小岩 外壁' }, today).length, 1); // 言葉はぜんぶ含むもの
+  assert.equal(E.customerSearch(custs, { q: '犬' }, today).length, 1); // 行のどの列でも探せる
+  assert.equal(E.customerSearch(custs, { city: '江戸川区' }, today).length, 2);
+  assert.equal(E.customerSearch(custs, { person: '佳' }, today).length, 2); // 担当C・担当Aのどちらでも
+  assert.equal(E.customerSearch(custs, { year: 2025 }, today).length, 1);
+  assert.equal(E.customerSearch(custs, { status: '施工中' }, today).length, 1);
+  assert.equal(E.customerSearch(custs, { status: '入金待ち' }, today).length, 1); // 完工済みで入金日なし
+  const f = E.customerFacets(custs);
+  assert.deepEqual(f.cities.map((x) => x.name), ['江戸川区', '葛飾区']);
+  assert.deepEqual(f.years, [2026, 2025]);
+  const sec = E.customerSections(custs[0]);
+  assert.deepEqual(sec.map((x) => x.title), ['基本', '連絡先', '工事内容', '日程', '金額(契約)', '経費(円)']);
+  assert.equal(sec[1].rows[1].kind, 'tel'); assert.equal(sec[1].rows[0].kind, 'addr');
+  assert.equal(sec.find((x) => x.title === '金額(契約)').rows.at(-1).label, '着地利益');
+  assert.equal(E.customerSections(custs[2]).at(-1).title, 'その他'); // どの見出しにも入らない列は「その他」に
+});
