@@ -338,7 +338,7 @@ export const yenToMan = (yen) => yen / 10000;
 
 // ---- 入出金(総未入金・総未出金・案件ごとの残り) ----------------------
 // 対象 = 顧客シートで「入金日」が空の案件(工事が終わっていない・入金が済んでいない案件)。
-// 入出金シートの「顧客名」は 苗字+邸(同じ苗字の対象が2件あるときだけ 山田邸(太郎) のように名前つき)。
+// 入出金シートの「顧客名」は 苗字+邸(同じ苗字の対象が2件あるときだけ サンプル邸(太郎) のように名前つき)。
 const splitName = (full) => String(full || '').replace(/　/g, ' ').trim().split(/\s+/);
 export function leadingName(full) { // 苗字+邸(すでに邸が付いていればそのまま)
   const first = splitName(full)[0] || '';
@@ -983,4 +983,27 @@ export function flyerSummary(rows, { year = 0 } = {}) {
   const groups = [...new Set(use.map((r) => r.media))];
   const rowsOut = groups.map((g) => ({ name: g, ...line(use.filter((r) => r.media === g)) })).sort((a, b) => b.budget - a.budget);
   return { rows: rowsOut, total: { name: '合計', ...line(use) } };
+}
+
+// ---- 発注チェック(タスク) -------------------------------------------------
+// 契約日と顧客名がそろったら自動で作る項目(Code.gsのTASK_TEMPLATEと同じ並び)。左右裏の挨拶・洗浄挨拶・養生説明は「挨拶」1つにまとめてある
+export const TASK_TEMPLATE = ['粗利予想', '顧客名簿', 'スキャン', '4分割', '職人発注', '足場発注', 'DropBox', '年賀状', '地図', 'マップ', 'ドライブ', '見本板発注', '見本板届け', '足場越境', '打ち合せ', '打ち合わせ書職人送信', '塗料発注', '足場現調', '車', '挨拶', 'フェンス', '着手', '完工', 'BeforeAfter'];
+const taskKey_ = (name, date) => `${name || ''}|${String(date || '').slice(0, 10)}`;
+// 未入金(お金がまだ残っている)案件ごとに、タスクの完了・未完了をまとめる。完工しても入金日が入るまでは対象のまま(完工・完工入金のタスクが残るため)
+export function taskBoard(data, { today = todayStr() } = {}) {
+  const custs = (data && data['顧客']) || [];
+  const open = custs.filter((c) => c['契約日'] && c['顧客名'] && !c['入金日']);
+  const byKey = new Map();
+  for (const r of (data && data['タスク']) || []) {
+    if (!r['顧客名'] || !r['項目']) continue;
+    const k = taskKey_(r['顧客名'], r['契約日']);
+    if (!byKey.has(k)) byKey.set(k, []);
+    byKey.get(k).push({ item: r['項目'], done: !!r['完了日'], doneDate: r['完了日'] || null });
+  }
+  const list = open.map((c) => {
+    const items = byKey.get(taskKey_(c['顧客名'], c['契約日'])) || [];
+    return { name: c['顧客名'], contractDate: String(c['契約日']).slice(0, 10), items, doneCount: items.filter((i) => i.done).length, total: items.length };
+  });
+  list.sort((a, b) => a.contractDate.localeCompare(b.contractDate) || a.name.localeCompare(b.name, 'ja'));
+  return list;
 }

@@ -18,6 +18,8 @@ import * as review from './screens/review.js';
 import * as ranking from './screens/ranking.js';
 import * as customers from './screens/customers.js';
 import * as flyer from './screens/flyer.js';
+import * as leadform from './screens/leadform.js';
+import * as tasks from './screens/tasks.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -34,11 +36,15 @@ const ICON = {
   ranking: 'M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3',
   customers: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 3.6-7 8-7s8 3 8 7',
   flyer: 'M4 4h13l3 4-3 4H4zM4 12v8m0-4h8',
+  leadform: 'M12 5v14M5 12h14',
+  tasks: 'M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9',
   start: 'M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
 };
 const ROUTES = [
   { id: 'home', label: 'ホーム', mod: home },
+  { id: 'leadform', label: '反響を登録', mod: leadform },
+  { id: 'tasks', label: '発注チェック', mod: tasks },
   { id: 'maint', label: 'メンテ', mod: maint },
   { id: 'sales', label: '売上', mod: sales },
   { id: 'start', label: '着工粗利', mod: start },

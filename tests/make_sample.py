@@ -2,7 +2,7 @@
 import json, random, datetime, zlib
 random.seed(7)
 routes = [('訪問','訪販',30),('足場','訪販',8),('ヌリカエ','ポータル',22),('窓口','ポータル',8),('リショップ','ポータル',5),('チラシ','自社',9),('紹介','自社',9),('HP','自社',5),('YouTube','自社',3),('追加',None,4),('MIRAI',None,2)]
-people = ['田中','鈴木']
+people = ['卯田','辰巳']
 custs = []; leads = []
 def rnd_date(y):
     return datetime.date(y, random.randint(1,12), random.randint(1,28))
@@ -45,9 +45,9 @@ for y, cnt in [(2024,40),(2025,50),(2026,40)]:
         leads.append({'反響ID': f'R{len(leads)+1:04d}', '反響日': rnd_date(y).isoformat() if not (y==2026) else datetime.date(2026,random.randint(1,9),random.randint(1,28)).isoformat(), '邸名': f'見込み{len(leads)}邸', '担当': random.choice(people), '区分': r[1], '媒体': r[0], '結果': res})
 # 退職した担当(2024年だけ在籍)の見本 → 担当タブには出ない
 for i, c in enumerate([c for c in custs if c['契約日'] < '2025-01-01']):
-    if i % 4 == 0: c['担当C'] = '山田'
+    if i % 4 == 0: c['担当C'] = '子安'
 for l in leads:
-    if l['反響日'] < '2025-01-01' and zlib.crc32(l['邸名'].encode()) % 4 == 0: l['担当'] = '山田'
+    if l['反響日'] < '2025-01-01' and zlib.crc32(l['邸名'].encode()) % 4 == 0: l['担当'] = '子安'
 # ポータルの反響に「紹介数」「番手」(何社に紹介されて何番目に見積りを出したか)。見本なので番手が前ほど決まりやすくしてある
 prng = random.Random(11)
 for l in leads:
@@ -140,5 +140,20 @@ for y, months in [(2025, range(1, 13)), (2026, range(1, 10))]:
                 row.update({'売上(円)': sales_v or None, '利益(円)': profit_v or None,
                              '反響エリア': f'サンプル町、見本台' if leads_n else None, '反響件数': leads_n or None, '成約件数': deals_n or None})
             flyers.append(row)
-json.dump({'反響': leads, '顧客': custs, '入出金': ledger, '年間収支': year_sheets, '経費データ': [], 'チラシ折込': flyers, '職人マスター': master, '設定': [{'項目': '年間収支の切替月', '値(入力)': '2026-08'}, {'項目': 'メンテ確認の開始日', '値(入力)': '2026-01-01'}, {'項目': '案件アラートの対象期間', '値(入力)': 60}, {'項目': 'ポータルのキャンセル確認日数', '値(入力)': 6}, {'項目': 'ポータルのキャンセル期限日数', '値(入力)': 7}, {'項目': '見積り忘れの確認日数', '値(入力)': 7}], 'インセン調整': adj}, open('data/sample.json','w',encoding='utf-8'), ensure_ascii=False)
+# 発注チェックの見本(架空): 入金日が無い(=未入金の)案件だけ、テンプレの項目一式を作り、契約からの経過日数に応じてだいたい進んでいそうな数を完了にする
+TASK_TEMPLATE = ['粗利予想', '顧客名簿', 'スキャン', '4分割', '職人発注', '足場発注', 'DropBox', '年賀状', '地図', 'マップ', 'ドライブ', '見本板発注', '見本板届け', '足場越境', '打ち合せ', '打ち合わせ書職人送信', '塗料発注', '足場現調', '車', '挨拶', 'フェンス', '着手', '完工', 'BeforeAfter']
+trng = random.Random(53)
+tasks = []
+unpaid = [c for c in custs if not c.get('入金日') and not c['顧客名'].endswith('邸追')]
+for c in unpaid:
+    d = datetime.date.fromisoformat(c['契約日'])
+    elapsed = max(0, (today - d).days)
+    done_n = min(len(TASK_TEMPLATE), int(elapsed / 6))
+    done_set = set(TASK_TEMPLATE[:done_n])
+    for item in TASK_TEMPLATE:
+        done = item in done_set
+        done_date = (d + datetime.timedelta(days=trng.randint(1, max(1, min(elapsed, 60))))).isoformat() if done else None
+        tasks.append({'顧客名': c['顧客名'], '契約日': c['契約日'], '項目': item, '完了日': done_date})
+
+json.dump({'反響': leads, '顧客': custs, '入出金': ledger, '年間収支': year_sheets, '経費データ': [], 'チラシ折込': flyers, 'タスク': tasks, '職人マスター': master, '設定': [{'項目': '年間収支の切替月', '値(入力)': '2026-08'}, {'項目': 'メンテ確認の開始日', '値(入力)': '2026-01-01'}, {'項目': '案件アラートの対象期間', '値(入力)': 60}, {'項目': 'ポータルのキャンセル確認日数', '値(入力)': 6}, {'項目': 'ポータルのキャンセル期限日数', '値(入力)': 7}, {'項目': '見積り忘れの確認日数', '値(入力)': 7}], 'インセン調整': adj}, open('data/sample.json','w',encoding='utf-8'), ensure_ascii=False)
 print(len(leads), len(custs))
