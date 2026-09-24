@@ -1,5 +1,5 @@
 // アプリの「外側」(画面の部品)だけを保存して起動を速くする。売上などのデータは一切保存しない。
-const CACHE = 'kate-shell-v18';
+const CACHE = 'kate-shell-v19';
 const SHELL = ['./', './index.html', './css/app.css', './js/main.js', './js/config.js', './js/api.js', './js/auth.js', './js/engine.js', './js/pdf.js', './js/ui.js',
   './js/screens/home.js', './js/screens/sales.js', './js/screens/analysis.js', './js/screens/profit.js', './js/screens/cash.js', './js/screens/maint.js', './js/screens/incentive.js', './js/screens/annual.js', './js/screens/start.js',
   './js/screens/ratio.js', './js/screens/map.js', './js/screens/review.js', './js/screens/ranking.js', './js/screens/customers.js', './js/screens/flyer.js', './js/screens/leadform.js', './js/screens/tasks.js', './js/screens/persontable.js', './manifest.webmanifest', './icons/icon-192.png'];
