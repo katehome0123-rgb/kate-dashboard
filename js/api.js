@@ -24,6 +24,16 @@ export async function setTask(idToken, task) {
   await post_({ idToken, action: 'setTask', task });
 }
 
+// 経費を1件、経費データシートの空いている行に書き込む(「経費入力」画面から呼ぶ)
+export async function addExpense(idToken, expense) {
+  await post_({ idToken, action: 'addExpense', expense });
+}
+
+// 顧客を1件、契約日順を保って顧客シートに書き込む(「顧客登録」画面から呼ぶ)
+export async function addCustomer(idToken, customer) {
+  await post_({ idToken, action: 'addCustomer', customer });
+}
+
 async function post_(body) {
   if (!CONFIG.APPS_SCRIPT_URL) throw new Error('config.js の APPS_SCRIPT_URL がまだ空です');
   // Content-Type を text/plain にすると「事前確認(preflight)」が起きず、Apps Script でそのまま受け取れる

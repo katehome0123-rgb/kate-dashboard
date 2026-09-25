@@ -163,16 +163,24 @@ function gridSheet(name, rows) {
   return {
     getName: () => name,
     getDataRange: () => ({ getValues: () => grid.map((r) => r.slice()) }),
-    getRange: (r, c, n = 1, m = 1) => ({
-      getValue: () => (grid[r - 1] || [])[c - 1] ?? '',
-      setValue: (v) => { grid[r - 1] = grid[r - 1] || []; grid[r - 1][c - 1] = v; },
-      getValues: () => Array.from({ length: n }, (_, i) => Array.from({ length: m }, (_, j) => (grid[r - 1 + i] || [])[c - 1 + j] ?? '')),
-      setValues: (vals) => { vals.forEach((row, i) => { grid[r - 1 + i] = grid[r - 1 + i] || []; row.forEach((v, j) => { grid[r - 1 + i][c - 1 + j] = v; }); }); },
-    }),
+    getRange: (r, c, n = 1, m = 1) => {
+      const self = {
+        getValue: () => (grid[r - 1] || [])[c - 1] ?? '',
+        setValue: (v) => { grid[r - 1] = grid[r - 1] || []; grid[r - 1][c - 1] = v; },
+        getValues: () => Array.from({ length: n }, (_, i) => Array.from({ length: m }, (_, j) => (grid[r - 1 + i] || [])[c - 1 + j] ?? '')),
+        setValues: (vals) => { vals.forEach((row, i) => { grid[r - 1 + i] = grid[r - 1 + i] || []; row.forEach((v, j) => { grid[r - 1 + i][c - 1 + j] = v; }); }); },
+        // 「=」で始まる文字列を数式に見立てる(このモックには本物の数式エンジンが無いため)
+        getFormula: () => { const v = (grid[r - 1] || [])[c - 1]; return (typeof v === 'string' && v.charAt(0) === '=') ? v : ''; },
+        copyTo: (target) => { target.setValues(self.getValues()); },
+      };
+      return self;
+    },
     appendRow: (row) => grid.push(Array.from(row)),
     getLastRow: () => grid.length,
     getLastColumn: () => (grid[0] ? grid[0].length : 0),
+    getMaxRows: () => Math.max(grid.length, 2000), // 本物のシートは下の方まで行が確保されている想定
     deleteRows: (start, count) => grid.splice(start - 1, count),
+    insertRowBefore: (rowIndex) => { grid.splice(rowIndex - 1, 0, []); },
     hideSheet: () => {},
     _grid: grid,
   };
@@ -247,4 +255,127 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
   assert.equal(JSON.parse(out.t).ok, true);
   assert.equal(ss._sheets['タスク']._grid[1][3] instanceof Date, true);
   console.log('Code.gs: doPost(action:setTask)で完了・未完了を切り替えられるOK');
+}
+
+// ---- 経費入力(addExpense_) ----
+// 日付の並び順を保ったまま挿入する。同じ日付の行がすでにあれば、その行の同じ費目セルに金額を足し込む。
+// 曜日・合計など、隣の行にある「計算式」は新しい行にも引き継がれる(このモックでは「=」で始まる文字列を数式とみなす)
+{
+  const expRows = [
+    ['日付', '曜日', 'ガソリン代', '駐車場代', '交通費', '法人税', '設立費', 'その他'],
+    [new Date(2026, 8, 1), '=WD2', 3000, '', '', '', '', ''],
+    [new Date(2026, 8, 3), '=WD3', '', 1500, '', '', '', ''],
+  ];
+  const ss = makeSS({ 経費データ: expRows });
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Date, String, Number, isFinite, Error };
+  vm.createContext(ctx); vm.runInContext(src, ctx);
+
+  // 9/1と9/3の間に9/2を差し込む → 新しい行が間に入り、隣の行(9/3)の曜日の数式は引き継ぐが、値(駐車場代)は引き継がない
+  ctx.addExpense_({ 費目: 'その他', 金額: 800, 日付: '2026-09-02' });
+  let grid = ss._sheets['経費データ']._grid;
+  assert.equal(grid.length, 4);
+  assert.equal(grid[1][0].getDate(), 1); // 9/1のまま(動かない)
+  assert.equal(grid[2][0].getDate(), 2); // 新しく差し込まれた9/2
+  assert.equal(grid[2][1], '=WD3'); // 隣の行から曜日の数式を引き継ぐ
+  assert.equal(grid[2][3], ''); // 駐車場代の値は引き継がない(空になる)
+  assert.equal(grid[2][7], 800); // その他に金額が入る
+  assert.equal(grid[3][0].getDate(), 3); // 9/3は1つ下にずれただけで中身はそのまま
+  assert.equal(grid[3][3], 1500);
+
+  // 同じ日付(9/1)に別の費目を入れると、新しい行を作らずその行に書き込む
+  ctx.addExpense_({ 費目: '交通費', 金額: 500, 日付: '2026-09-01' });
+  grid = ss._sheets['経費データ']._grid;
+  assert.equal(grid.length, 4); // 行数は増えない
+  assert.equal(grid[1][4], 500);
+
+  // 同じ日付・同じ費目をもう一度入れると、上書きではなく合算される
+  ctx.addExpense_({ 費目: 'ガソリン代', 金額: 1200, 日付: '2026-09-01' });
+  grid = ss._sheets['経費データ']._grid;
+  assert.equal(grid.length, 4);
+  assert.equal(grid[1][2], 4200); // 3000 + 1200
+
+  // 一番新しい日付を入れると、末尾に追加される
+  ctx.addExpense_({ 費目: 'ガソリン代', 金額: 700, 日付: '2026-09-10' });
+  grid = ss._sheets['経費データ']._grid;
+  assert.equal(grid.length, 5);
+  assert.equal(grid[4][0].getDate(), 10);
+  assert.equal(grid[4][2], 700);
+
+  assert.throws(() => ctx.addExpense_({ 費目: '法人税', 金額: 1000, 日付: '2026-09-06' }), /法人税/);
+  assert.throws(() => ctx.addExpense_({ 費目: '存在しない費目', 金額: 1000, 日付: '2026-09-06' }), /見つかりません/);
+  assert.throws(() => ctx.addExpense_({ 費目: '交通費', 金額: -100, 日付: '2026-09-06' }), /金額/);
+  assert.throws(() => ctx.addExpense_({ 費目: '交通費', 金額: 100, 日付: '来週' }), /日付/);
+  console.log('Code.gs: 経費入力(addExpense_)。日付順を保って挿入し、同じ日付は費目ごとに足し込む。法人税・設立費は拒否OK');
+}
+// doPost(action:'addExpense') 経由でも同じように書き込める
+{
+  const expRows = [['日付', '曜日', 'ガソリン代'], ['', '', '']];
+  const ss = makeSS({ 経費データ: expRows });
+  const props = { CLIENT_ID: 'cid', ALLOWED_EMAILS: 'owner@example.com' };
+  const ctx = {
+    ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ t, setMimeType() { return this; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
+    UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ aud: 'cid', email: 'owner@example.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    JSON, Date, Number, String, Error, Object, encodeURIComponent, isFinite,
+  };
+  vm.createContext(ctx); vm.runInContext(src, ctx);
+  const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't', action: 'addExpense', expense: { 費目: 'ガソリン代', 金額: 4500, 日付: '2026-09-10' } }) } });
+  assert.equal(JSON.parse(out.t).ok, true);
+  assert.equal(ss._sheets['経費データ']._grid[1][2], 4500);
+  console.log('Code.gs: doPost(action:addExpense)で経費を1件追加できるOK');
+}
+
+// ---- 顧客登録(addCustomer_) ----
+// 契約日順を保ったまま挿入し、対応する列に値を書き込む。契約日・顧客名がそろうので発注チェックのタスクも自動で作る
+{
+  const custRows = [
+    ['契約日', '顧客名', '契約金額(万円)', '住所', '電話番号①', '集客経路', '担当C', '完工日'],
+    [new Date(2026, 8, 1), '丙野邸', 120, '江戸川区東小岩1-1-1', '03-0000-0001', '訪問', '佳人', ''],
+    [new Date(2026, 8, 5), '丁野邸', 95, '江戸川区南小岩2-2-2', '03-0000-0002', 'HP', '塩野', ''],
+  ];
+  const ss = makeSS({ 顧客: custRows });
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_ }, Date, String, Number, isFinite, Error };
+  vm.createContext(ctx); vm.runInContext(src, ctx);
+  ctx.addCustomer_({ 契約日: '2026-09-03', 顧客名: '柊木邸', 住所: '江戸川区西小岩3-3-3', '電話番号①': '03-0000-0003', '契約金額(万円)': 150, 集客経路: 'チラシ', 担当C: '佳人' });
+  const grid = ss._sheets['顧客']._grid;
+  assert.equal(grid.length, 4);
+  assert.equal(grid[1][1], '丙野邸'); // 動かない
+  assert.equal(grid[2][1], '柊木邸'); // 9/3で間に挿入
+  assert.equal(grid[2][0].getDate(), 3);
+  assert.equal(grid[2][2], 150);
+  assert.equal(grid[2][3], '江戸川区西小岩3-3-3');
+  assert.equal(grid[2][4], '03-0000-0003');
+  assert.equal(grid[2][5], 'チラシ');
+  assert.equal(grid[2][6], '佳人');
+  assert.equal(grid[3][1], '丁野邸'); // ずれただけ
+
+  // 発注チェックのタスクも自動で作られる(手でスプシに入力したときと同じ)
+  const tasks = ss._sheets['タスク']._grid;
+  assert.equal(tasks.length, 1 + 24);
+  assert.equal(tasks[1][0], '柊木邸');
+
+  assert.throws(() => ctx.addCustomer_({ 契約日: '2026-09-04', 顧客名: '', 集客経路: 'HP', 担当C: '佳人' }), /顧客名/);
+  assert.throws(() => ctx.addCustomer_({ 契約日: '来週', 顧客名: 'x', 集客経路: 'HP', 担当C: '佳人' }), /契約日/);
+  assert.throws(() => ctx.addCustomer_({ 契約日: '2026-09-04', 顧客名: 'x', 集客経路: '', 担当C: '佳人' }), /集客経路/);
+  assert.throws(() => ctx.addCustomer_({ 契約日: '2026-09-04', 顧客名: 'x', 集客経路: 'HP', 担当C: '' }), /担当/);
+  console.log('Code.gs: 顧客登録(addCustomer_)。契約日順を保って挿入し、発注チェックのタスクも自動で作るOK');
+}
+// doPost(action:'addCustomer') 経由でも同じように追加できる
+{
+  const custRows = [['契約日', '顧客名', '集客経路', '担当C'], ['', '', '', '']];
+  const ss = makeSS({ 顧客: custRows });
+  const props = { CLIENT_ID: 'cid', ALLOWED_EMAILS: 'owner@example.com' };
+  const ctx = {
+    ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ t, setMimeType() { return this; } }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
+    UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ aud: 'cid', email: 'owner@example.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    Utilities: { formatDate: fmtDate_ }, JSON, Date, Number, String, Error, Object, encodeURIComponent, isFinite,
+  };
+  vm.createContext(ctx); vm.runInContext(src, ctx);
+  const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't', action: 'addCustomer', customer: { 契約日: '2026-09-10', 顧客名: '梅沢邸', 集客経路: '紹介', 担当C: '塩野' } }) } });
+  assert.equal(JSON.parse(out.t).ok, true);
+  assert.equal(ss._sheets['顧客']._grid[1][1], '梅沢邸');
+  console.log('Code.gs: doPost(action:addCustomer)で顧客を1件追加できるOK');
 }

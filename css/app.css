@@ -333,6 +333,12 @@ body.noscroll { overflow: hidden; }
 .formok { background: color-mix(in srgb, #22c55e 12%, transparent); border-color: #86c79a; }
 .formerr { background: color-mix(in srgb, #ef4444 10%, transparent); border-color: #e08585; }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+.tabrow { display: flex; flex-wrap: wrap; gap: 7px; }
+.taboption {
+  font: inherit; font-size: 13.5px; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.taboption.selected { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
 
 /* ---- 発注チェック(タスク) ---- */
 .taskcard { padding: 0; overflow: hidden; margin-bottom: 12px; }

@@ -20,6 +20,8 @@ import * as customers from './screens/customers.js';
 import * as flyer from './screens/flyer.js';
 import * as leadform from './screens/leadform.js';
 import * as tasks from './screens/tasks.js';
+import * as expense from './screens/expense.js';
+import * as customerform from './screens/customerform.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -38,13 +40,17 @@ const ICON = {
   flyer: 'M4 4h13l3 4-3 4H4zM4 12v8m0-4h8',
   leadform: 'M12 5v14M5 12h14',
   tasks: 'M9 11l3 3 8-8M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9',
+  expense: 'M5 3h14v18l-2.5-1.5L14 21l-2-1.5L10 21l-2.5-1.5L5 21zM8 8h8M8 12h8M8 16h5',
+  customerform: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 3.6-7 8-7s8 3 8 7M17 6l2 2 4-4',
   start: 'M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
 };
 const ROUTES = [
   { id: 'home', label: 'ホーム', mod: home },
   { id: 'leadform', label: '反響を登録', mod: leadform },
+  { id: 'customerform', label: '顧客登録', mod: customerform },
   { id: 'tasks', label: '発注チェック', mod: tasks },
+  { id: 'expense', label: '経費入力', mod: expense },
   { id: 'maint', label: 'メンテ', mod: maint },
   { id: 'customers', label: '顧客', mod: customers },
   { id: 'map', label: '施工地図', mod: map },
