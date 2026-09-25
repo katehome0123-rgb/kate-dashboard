@@ -19,7 +19,7 @@ export async function addLead(idToken, lead) {
   await post_({ idToken, action: 'addLead', lead });
 }
 
-// 発注チェックの1項目を完了・未完了に切り替える(「発注チェック」画面から呼ぶ)
+// 発注チェックの1項目を完了・未完了に切り替える(「発注タスク」画面から呼ぶ)
 export async function setTask(idToken, task) {
   await post_({ idToken, action: 'setTask', task });
 }

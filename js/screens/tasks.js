@@ -5,7 +5,7 @@ import { getToken } from '../auth.js';
 
 const dl = (d) => { const s = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${Number(s.slice(0, 4))}/${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}` : String(d || ''); };
 
-// 発注チェック: 入金がまだの案件ごとに、発注・準備の項目(タスク)を一覧してタップで完了・未完了を切り替える
+// 発注タスク: 入金がまだの案件ごとに、発注・準備の項目(タスク)を一覧してタップで完了・未完了を切り替える
 export function render(ctx) {
   const DEMO = new URLSearchParams(location.search).has('demo');
   const st = (ctx.state.tasks ||= { open: {}, busy: {}, error: '' });
@@ -51,7 +51,7 @@ export function render(ctx) {
   };
 
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, '発注チェック'),
+    h('div', { class: 'head' }, h('div', null, h('h1', null, '発注タスク'),
       h('div', { class: 'sub' }, '入金がまだの案件ごとに、発注・準備の抜け漏れをチェックします(完工していても入金前は表示されたままです)'))),
     DEMO ? h('p', { class: 'notice' }, '練習用データではチェックできません(スプレッドシートに書き込む機能のため、本番でログインしたときだけ使えます)。') : null,
     st.error ? h('p', { class: 'formerr' }, st.error) : null,

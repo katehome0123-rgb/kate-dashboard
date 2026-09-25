@@ -22,6 +22,7 @@ import * as leadform from './screens/leadform.js';
 import * as tasks from './screens/tasks.js';
 import * as expense from './screens/expense.js';
 import * as customerform from './screens/customerform.js';
+import * as deals from './screens/deals.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -44,25 +45,27 @@ const ICON = {
   customerform: 'M16 11a4 4 0 1 0-8 0 4 4 0 0 0 8 0zM4 21c0-4 3.6-7 8-7s8 3 8 7M17 6l2 2 4-4',
   start: 'M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
+  deals: 'M3 7h18v13H3zM8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18',
 };
 const ROUTES = [
   { id: 'home', label: 'ホーム', mod: home },
   { id: 'leadform', label: '反響を登録', mod: leadform },
   { id: 'customerform', label: '顧客登録', mod: customerform },
-  { id: 'tasks', label: '発注チェック', mod: tasks },
   { id: 'expense', label: '経費入力', mod: expense },
+  { id: 'tasks', label: '発注タスク', mod: tasks },
   { id: 'maint', label: 'メンテ', mod: maint },
   { id: 'customers', label: '顧客', mod: customers },
-  { id: 'map', label: '施工地図', mod: map },
   { id: 'sales', label: '売上', mod: sales },
   { id: 'start', label: '着工粗利', mod: start },
-  { id: 'profit', label: '利益率', mod: profit },
+  { id: 'deals', label: '案件', mod: deals },
   { id: 'cash', label: '入出金', mod: cash },
-  { id: 'annual', label: '年間収支', mod: annual },
+  { id: 'profit', label: '利益率', mod: profit },
   { id: 'analysis', label: '集客分析', mod: analysis },
-  { id: 'incentive', label: 'インセン', mod: incentive },
+  { id: 'annual', label: '年間収支', mod: annual },
   { id: 'ratio', label: '割合', mod: ratio },
   { id: 'flyer', label: 'チラシ', mod: flyer },
+  { id: 'incentive', label: 'インセン', mod: incentive },
+  { id: 'map', label: '施工地図', mod: map },
   { id: 'review', label: '口コミ', mod: review },
   { id: 'ranking', label: 'ランキング', mod: ranking },
 ];

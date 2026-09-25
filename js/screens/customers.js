@@ -45,16 +45,18 @@ if (typeof document !== 'undefined' && !window.__custKeys) {
 
 // 顧客: 検索・絞り込み(江戸川区だけ等)して、押すと全部の情報が見られる
 export function render(ctx) {
-  const st = (ctx.state.customers ||= { q: '', city: '', route: '', person: '', year: 0, status: '', shown: 30 });
+  const st = (ctx.state.customers ||= { q: '', city: '', route: '', person: '', year: 0, status: '', shown: 30, showPaid: false });
   const today = E.todayStr();
   const fac = E.customerFacets(ctx.custs);
   const listBox = h('div', { class: 'card' });
 
   const paint = () => {
-    const rows = E.customerSearch(ctx.custs, st, today);
+    const all = E.customerSearch(ctx.custs, st, today);
+    const paidCount = all.filter((c) => c['入金日']).length;
+    const rows = st.showPaid ? all : all.filter((c) => !c['入金日']);
     const shown = rows.slice(0, st.shown);
     const money = rows.reduce((a, c) => a + (c._sales || 0), 0);
-    listBox.replaceChildren(
+    listBox.replaceChildren(...[
       h('h2', null, `顧客の一覧(${rows.length}件)`),
       rows.length ? h('p', { class: 'small muted', style: 'margin:0 0 8px' }, `契約金額の合計 ${E.fmtMan(money, 0)}万円(税込)。押すと詳細が開きます。`) : null,
       rows.length ? h('div', { class: 'custlist' }, shown.map((c) => {
@@ -66,18 +68,21 @@ export function render(ctx) {
             h('span', null, dl(c['契約日'])),
             h('span', { class: 'cr-amt' }, `${E.fmtMan(c._sales, 0)}万円`),
             h('span', null, [c['集客経路'], [c['担当C'], c['担当A']].filter(Boolean).join('・')].filter(Boolean).join(' / '))));
-      })) : h('p', { class: 'notice' }, 'この条件に当てはまる顧客がいません。'),
-      rows.length > st.shown ? h('div', { class: 'controls', style: 'margin:10px 0 0' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 30; paint(); } }, `もっと見る(あと${rows.length - st.shown}件)`)) : null);
+      })) : h('p', { class: 'notice' }, st.showPaid ? 'この条件に当てはまる顧客がいません。' : 'この条件で入金がまだの顧客はいません。'),
+      rows.length > st.shown ? h('div', { class: 'controls', style: 'margin:10px 0 0' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 30; paint(); } }, `もっと見る(あと${rows.length - st.shown}件)`)) : null,
+      !st.showPaid && paidCount ? h('div', { class: 'controls', style: 'margin:10px 0 0' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.showPaid = true; st.shown = 30; paint(); } }, `入金済みの顧客も見る(${paidCount}件)`)) : null,
+      st.showPaid && paidCount ? h('div', { class: 'controls', style: 'margin:10px 0 0' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.showPaid = false; st.shown = 30; paint(); } }, '入金済みの顧客を隠す')) : null,
+    ].filter(Boolean));
   };
   const change = (key, num) => (e) => { st[key] = num ? Number(e.target.value) : e.target.value; st.shown = 30; paint(); };
   const sel = (label, key, opts, num) => h('select', { 'aria-label': label, onchange: change(key, num) },
     h('option', { value: '' }, `${label}:すべて`), opts.map((o) => h('option', { value: o.v, selected: o.v === st[key] }, o.t)));
   const search = h('input', { type: 'search', class: 'custsearch', placeholder: '名前・住所・電話・工事内容など', value: st.q, 'aria-label': '検索',
     oninput: (e) => { st.q = e.target.value; st.shown = 30; paint(); } });
-  const clear = h('button', { class: 'btn', type: 'button', onclick: () => { Object.assign(st, { q: '', city: '', route: '', person: '', year: 0, status: '', shown: 30 }); ctx.rerender(); } }, '条件をクリア');
+  const clear = h('button', { class: 'btn', type: 'button', onclick: () => { Object.assign(st, { q: '', city: '', route: '', person: '', year: 0, status: '', shown: 30, showPaid: false }); ctx.rerender(); } }, '条件をクリア');
   paint();
   return h('div', null,
-    h('div', { class: 'head' }, h('div', null, h('h1', null, '顧客'), h('div', { class: 'sub' }, '検索・絞り込みをして、押すと顧客情報がすべて見られます'))),
+    h('div', { class: 'head' }, h('div', null, h('h1', null, '顧客'), h('div', { class: 'sub' }, 'はじめに入金がまだの顧客だけを表示します(入金済みは「もっと見る」)。検索・絞り込みをして、押すと顧客情報がすべて見られます'))),
     h('div', { class: 'card' },
       search,
       h('div', { class: 'controls', style: 'margin:10px 0 0' },

@@ -233,6 +233,34 @@ export const leadPersons = (leads) => {
   return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
 };
 
+// ---- 案件: 反響のうち「連絡つかず」「成約」以外(まだ動いている、または結果待ちのもの) ----
+export const DEALS_EXCLUDE = ['連絡つかず', '成約'];
+export function dealsList(leads, { section = '' } = {}) {
+  const pool = (leads || []).filter((l) => {
+    const res = l['結果'] || '';
+    if (DEALS_EXCLUDE.includes(res)) return false;
+    return !section || l['区分'] === section;
+  });
+  return pool.map((l) => ({
+    name: l['邸名'] || '',
+    section: l['区分'] || '',
+    media: l['媒体'] || '',
+    person: l['担当'] || '',
+    result: l['結果'] || '(結果待ち)',
+    date: leadDate(l),
+    region: l['地域'] || '',
+  })).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+}
+export function dealsCounts(leads) {
+  const base = { 自社: 0, ポータル: 0, 訪販: 0 };
+  for (const l of leads || []) {
+    const res = l['結果'] || '';
+    if (DEALS_EXCLUDE.includes(res)) continue;
+    if (l['区分'] in base) base[l['区分']]++;
+  }
+  return base;
+}
+
 // ---- アラート: アフターメンテ / 案件 ---------------------------------
 // 完工日の 1か月後 / 5年後 / 10年後 が点検の予定日(1件の案件に3回)。
 // 実施日は顧客の行の「メンテ1か月」「メンテ5年」「メンテ10年」列に入れる。
