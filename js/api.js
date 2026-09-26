@@ -34,15 +34,30 @@ export async function addCustomer(idToken, customer) {
   await post_({ idToken, action: 'addCustomer', customer });
 }
 
+// Apps Script は混み合う・スリープからの目覚めなどで時間がかかることがあるが、
+// いつまでも待たせて「反応が無い」ように見えるのを防ぐため、一定時間で打ち切ってはっきりしたエラーにする。
+const TIMEOUT_MS = 25000;
+
 async function post_(body) {
   if (!CONFIG.APPS_SCRIPT_URL) throw new Error('config.js の APPS_SCRIPT_URL がまだ空です');
-  // Content-Type を text/plain にすると「事前確認(preflight)」が起きず、Apps Script でそのまま受け取れる
-  const res = await fetch(CONFIG.APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(body),
-    redirect: 'follow',
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let res;
+  try {
+    // Content-Type を text/plain にすると「事前確認(preflight)」が起きず、Apps Script でそのまま受け取れる
+    res = await fetch(CONFIG.APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body),
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('サーバーの応答がありません(時間切れ)。電波を確認して、もう一度お試しください。');
+    throw new Error('通信できませんでした。電波を確認して、もう一度お試しください。');
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`サーバーの応答が正しくありません (${res.status})`);
   const json = await res.json();
   if (!json.ok) {

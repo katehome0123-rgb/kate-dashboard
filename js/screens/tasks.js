@@ -1,7 +1,7 @@
 import { h } from '../ui.js';
 import * as E from '../engine.js';
-import { setTask } from '../api.js';
-import { getToken } from '../auth.js';
+import { setTask, AuthError } from '../api.js';
+import { getToken, hasValidToken } from '../auth.js';
 
 const dl = (d) => { const s = String(d || '').slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${Number(s.slice(0, 4))}/${Number(s.slice(5, 7))}/${Number(s.slice(8, 10))}` : String(d || ''); };
 
@@ -18,6 +18,12 @@ export function render(ctx) {
     if (DEMO) return; // 練習用データは見るだけ
     const key = `${job.name}|${job.contractDate}|${it.item}`;
     if (st.busy[key]) return;
+    // ログインが切れていると、通信してから失敗が分かるまで待たされた上に元に戻って見える。先に分かっているなら先に伝える
+    if (!hasValidToken()) {
+      st.error = 'ログインが切れています。画面を再読み込みしてログインし直してください。';
+      ctx.rerender();
+      return;
+    }
     const next = !it.done;
     const raw = (ctx.data['タスク'] || []).find((r) => r['顧客名'] === job.name && String(r['契約日']).slice(0, 10) === job.contractDate && r['項目'] === it.item);
     it.done = next; if (raw) raw['完了日'] = next ? today : null; // 先に画面だけ切り替える(楽観的更新)
@@ -26,7 +32,9 @@ export function render(ctx) {
       await setTask(getToken(), { 顧客名: job.name, 契約日: job.contractDate, 項目: it.item, done: next });
     } catch (e) {
       it.done = !next; if (raw) raw['完了日'] = !next ? today : null; // 失敗したら元に戻す
-      st.error = e.message || String(e);
+      st.error = e instanceof AuthError
+        ? 'ログインが切れたため、この変更は保存されていません。画面を再読み込みしてログインし直し、もう一度チェックしてください。'
+        : `保存できませんでした(この項目は元に戻しました):${e.message || String(e)}`;
     } finally {
       st.busy[key] = false; ctx.rerender();
     }
@@ -44,7 +52,7 @@ export function render(ctx) {
           h('span', { class: 'tc-arrow' }, opened ? '▲' : '▼'))),
       opened ? (job.total ? h('div', { class: 'tc-list' }, job.items.map((it) => {
         const k = `${job.name}|${job.contractDate}|${it.item}`;
-        return h('label', { class: `tc-item ${it.done ? 'tc-checked' : ''}` },
+        return h('label', { class: `tc-item ${it.done ? 'tc-checked' : ''} ${st.busy[k] ? 'tc-busy' : ''}` },
           h('input', { type: 'checkbox', checked: it.done, disabled: DEMO || st.busy[k], onchange: () => toggleItem(job, it) }),
           h('span', null, it.item));
       })) : h('p', { class: 'small muted', style: 'margin:0 16px 14px' }, 'この案件のタスクはまだ作られていません。スプレッドシートの「ケイトホーム」メニュー→「未入金案件のタスクを作る(足りない分だけ)」を押すと作れます。')) : null);

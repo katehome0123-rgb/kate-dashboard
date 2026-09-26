@@ -1,7 +1,7 @@
 import { h } from '../ui.js';
 import * as E from '../engine.js';
-import { addExpense } from '../api.js';
-import { getToken } from '../auth.js';
+import { addExpense, AuthError } from '../api.js';
+import { getToken, hasValidToken } from '../auth.js';
 
 // 経費を1件、その場でスプレッドシート(経費データ)に書き込む。法人税・設立費はここには出さない(手入力のみ)
 const ITEMS = ['ガソリン代', '駐車場代', '高速代', '備品代', '飲食費', '租税公課', '交通費', 'プリント代', '車両代', '消耗品費', '福利厚生費', '印紙代', '携帯代', '交際費', '宿泊費', '車両費', 'その他'];
@@ -19,13 +19,20 @@ export function render(ctx) {
 
   const submit = async () => {
     if (!canSubmit) return;
+    if (!hasValidToken()) {
+      st.error = 'ログインが切れています。画面を再読み込みしてログインし直してください。';
+      ctx.rerender();
+      return;
+    }
     st.sending = true; st.error = ''; ctx.rerender();
     try {
       await addExpense(getToken(), { 費目: st.ex.費目, 金額: amountNum, 日付: st.ex.日付 });
       st.last = { item: st.ex.費目, amount: amountNum };
       st.done = true;
     } catch (e) {
-      st.error = e.message || String(e);
+      st.error = e instanceof AuthError
+        ? 'ログインが切れたため、登録できませんでした。画面を再読み込みしてログインし直し、もう一度お試しください。'
+        : (e.message || String(e));
     } finally {
       st.sending = false; ctx.rerender();
     }

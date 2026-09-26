@@ -1,6 +1,8 @@
 // Code.gs を Google の部品を模したものの上で動かして、認証と読み出しの動きを確かめる
 import fs from 'node:fs'; import vm from 'node:vm'; import assert from 'node:assert/strict';
 const src = fs.readFileSync(new URL('../apps-script/Code.gs', import.meta.url), 'utf8');
+// Utilities.parseDate('YYYY-MM-DD', tz, fmt) のかんたんな模し(このモックではタイムゾーンは無視し、書かれた年月日をそのままDateにする)
+const mockParseDate = (str) => { const [y, m, d] = String(str).split('-').map(Number); return new Date(y, m - 1, d); };
 function run(tokeninfo, body, extra = {}) {
   const props = { CLIENT_ID: 'cid', ALLOWED_EMAILS: 'Owner@example.com, other@example.com', ...(extra.props || {}) };
   const sheet = (rows) => ({ getDataRange: () => ({ getValues: () => rows }) });
@@ -10,7 +12,7 @@ function run(tokeninfo, body, extra = {}) {
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => (tokeninfo ? 200 : 400), getContentText: () => JSON.stringify(tokeninfo || {}) }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: (n) => sheets[n] || null, getSheets: () => Object.values(sheets).map((x, i) => (x.getName ? x : Object.assign(x, { getName: () => Object.keys(sheets)[i] }))) }), openById: (id) => { if (id !== 'PID') throw new Error('no'); return { getSheetByName: (n) => (n === 'ポータル' ? sheet([['反響ID', '邸名'], ['P1', 'p邸']]) : null) }; } },
-    Utilities: { formatDate: (d) => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10) }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
+    Utilities: { formatDate: (d) => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10), parseDate: mockParseDate }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
   };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const out = ctx.doPost({ postData: { contents: JSON.stringify(body) } });
@@ -37,7 +39,7 @@ console.log('Code.gs: 認証(許可外・別アプリ・期限切れ・未確認
   const sh = { getName: () => '経費データ', getRange: (r, c, n = 1, m = 1) => ({
     getValue: () => cells[`${r},${c}`] ?? '', setValue: (v) => { cells[`${r},${c}`] = v; }, setNumberFormat: () => {},
     getValues: () => [Array.from({ length: m }, (_, k) => cells[`${r},${c + k}`] ?? '')] }) };
-  const ctx = { String, Number, Date, Utilities: { formatDate: () => '2026-9-20' }, TZ: 'Asia/Tokyo' };
+  const ctx = { String, Number, Date, Utilities: { formatDate: () => '2026-9-20', parseDate: mockParseDate }, TZ: 'Asia/Tokyo' };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const ev = (row, last, c1 = 3, c2 = 3) => ctx.onEdit({ range: { getSheet: () => sh, getRow: () => row, getLastRow: () => last, getColumn: () => c1, getLastColumn: () => c2 } });
   ev(2, 4);   // 3行分を一度に貼り付け
@@ -102,7 +104,7 @@ console.log('Code.gs: 認証(許可外・別アプリ・期限切れ・未確認
         insertSheet: (n) => { created = true; return logSheet; },
       }),
     },
-    Utilities: { formatDate: (d) => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10) }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
+    Utilities: { formatDate: (d) => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10), parseDate: mockParseDate }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
   };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't' }) } });
@@ -123,7 +125,7 @@ console.log('Code.gs: 認証(許可外・別アプリ・期限切れ・未確認
   const jisha = headSheet(['反響日', '邸名', '地域', '担当', '媒体', '内容', '連絡方法']);
   const houhan = headSheet(['反響日', '邸名', '地域', '担当', '媒体']);
   const ss = { getSheetByName: (n) => ({ 自社: jisha, 訪販: houhan }[n] || null) };
-  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) }, String, Number, Date };
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, PropertiesService: { getScriptProperties: () => ({ getProperty: () => null }) }, Utilities: { parseDate: mockParseDate }, String, Number, Date };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   ctx.addLead_({ 区分: '自社', 反響日: '2026-09-20', 邸名: '見本邸', 地域: '江戸川', 担当: '塩野', 媒体: 'チラシ' });
   assert.equal(rows.length, 1);
@@ -147,7 +149,7 @@ console.log('Code.gs: 認証(許可外・別アプリ・期限切れ・未確認
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ aud: 'cid', email: 'owner@example.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: (n) => (n === '自社' ? jisha : (n === 'アクセスログ' ? logSheet : null)) }) },
-    JSON, Date, Number, String, Error, Object, encodeURIComponent,
+    Utilities: { parseDate: mockParseDate }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
   };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't', action: 'addLead', lead: { 区分: '自社', 邸名: '見本邸', 担当: '佳人', 媒体: 'HP' } }) } });
@@ -196,7 +198,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 {
   const custRows = [['顧客名', '契約日', '入金日'], ['見本邸', new Date(2026, 8, 1), '']];
   const ss = makeSS({ 顧客: custRows });
-  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_ }, Date, String, Number };
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_, parseDate: mockParseDate }, Date, String, Number };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const sh = ss._sheets['顧客'];
   const range = { getSheet: () => sh, getRow: () => 2, getLastRow: () => 2, getColumn: () => 1, getLastColumn: () => 1 };
@@ -218,7 +220,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
     ['', '', ''],
   ];
   const ss = makeSS({ 顧客: custRows });
-  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_ }, Date, String, Number };
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_, parseDate: mockParseDate }, Date, String, Number };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   ctx.createMissingTasks();
   const names = new Set(ss._sheets['タスク']._grid.slice(1).map((r) => r[0]));
@@ -229,7 +231,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
 {
   const taskRows = [['顧客名', '契約日', '項目', '完了日'], ['見本邸', new Date(2026, 8, 1), '足場発注', ''], ['見本邸', new Date(2026, 8, 1), '塗料発注', new Date(2026, 8, 5)]];
   const ss = makeSS({ タスク: taskRows });
-  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_ }, Date, String, Number };
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_, parseDate: mockParseDate }, Date, String, Number };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   ctx.setTask_({ 顧客名: '見本邸', 契約日: '2026-09-01', 項目: '足場発注', done: true });
   assert.equal(ss._sheets['タスク']._grid[1][3] instanceof Date, true);
@@ -248,7 +250,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ aud: 'cid', email: 'owner@example.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
-    Utilities: { formatDate: fmtDate_ }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
+    Utilities: { formatDate: fmtDate_, parseDate: mockParseDate }, JSON, Date, Number, String, Error, Object, encodeURIComponent,
   };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't', action: 'setTask', task: { 顧客名: '見本邸', 契約日: '2026-09-01', 項目: '足場発注', done: true } }) } });
@@ -267,7 +269,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
     [new Date(2026, 8, 3), '=WD3', '', 1500, '', '', '', ''],
   ];
   const ss = makeSS({ 経費データ: expRows });
-  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Date, String, Number, isFinite, Error };
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { parseDate: mockParseDate }, Date, String, Number, isFinite, Error };
   vm.createContext(ctx); vm.runInContext(src, ctx);
 
   // 9/1と9/3の間に9/2を差し込む → 新しい行が間に入り、隣の行(9/3)の曜日の数式は引き継ぐが、値(駐車場代)は引き継がない
@@ -317,13 +319,48 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ aud: 'cid', email: 'owner@example.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
-    JSON, Date, Number, String, Error, Object, encodeURIComponent, isFinite,
+    Utilities: { parseDate: mockParseDate }, JSON, Date, Number, String, Error, Object, encodeURIComponent, isFinite,
   };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't', action: 'addExpense', expense: { 費目: 'ガソリン代', 金額: 4500, 日付: '2026-09-10' } }) } });
   assert.equal(JSON.parse(out.t).ok, true);
   assert.equal(ss._sheets['経費データ']._grid[1][2], 4500);
   console.log('Code.gs: doPost(action:addExpense)で経費を1件追加できるOK');
+}
+
+// ---- 経費データの自動日付行(addTodayExpenseRow_ / enableAutoExpenseDateRow_) ----
+{
+  const expRows = [['日付', '曜日', 'ガソリン代'], [new Date(2026, 8, 18), '=WD2', '']];
+  const ss = makeSS({ 経費データ: expRows });
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: () => '2026-09-19', parseDate: mockParseDate }, Date, String, Number };
+  vm.createContext(ctx); vm.runInContext(src, ctx);
+  ctx.addTodayExpenseRow_();
+  let grid = ss._sheets['経費データ']._grid;
+  assert.equal(grid.length, 3); // 今日(9/19)の行が1行増える
+  assert.equal(grid[2][0].getDate(), 19);
+  assert.equal(grid[2][1], '=WD2'); // 隣の行から曜日の数式を引き継ぐ
+  assert.equal(grid[2][2], ''); // 金額は空のまま
+  ctx.addTodayExpenseRow_(); // もう一度実行しても増えない(今日の行はもうある)
+  assert.equal(ss._sheets['経費データ']._grid.length, 3);
+  console.log('Code.gs: 経費データに今日の日付の行を自動で足す(addTodayExpenseRow_)。すでにあれば増えないOK');
+}
+{
+  const expRows = [['日付', '曜日', 'ガソリン代'], [new Date(2026, 8, 18), '=WD2', '']];
+  const ss = makeSS({ 経費データ: expRows });
+  const triggers = [];
+  const builder = (fn) => ({ timeBased: () => ({ everyDays: () => ({ atHour: () => ({ create: () => { triggers.push({ getHandlerFunction: () => fn }); } }) }) }) });
+  const ctx = {
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    ScriptApp: { getProjectTriggers: () => triggers, newTrigger: builder },
+    Utilities: { formatDate: () => '2026-09-19', parseDate: mockParseDate }, Date, String, Number,
+  };
+  vm.createContext(ctx); vm.runInContext(src, ctx);
+  ctx.enableAutoExpenseDateRow_();
+  assert.equal(triggers.length, 1); // 毎日動くしかけを1つ作る
+  assert.equal(ss._sheets['経費データ']._grid.length, 3); // 押したその場で今日の分もすぐ足す
+  ctx.enableAutoExpenseDateRow_(); // もう一度押しても、しかけを重ねて作らない
+  assert.equal(triggers.length, 1);
+  console.log('Code.gs: 経費データの自動日付行を有効にする(enableAutoExpenseDateRow_)。二重に設定しないOK');
 }
 
 // ---- 顧客登録(addCustomer_) ----
@@ -335,7 +372,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
     [new Date(2026, 8, 5), '丁野邸', 95, '江戸川区南小岩2-2-2', '03-0000-0002', 'HP', '塩野', ''],
   ];
   const ss = makeSS({ 顧客: custRows });
-  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_ }, Date, String, Number, isFinite, Error };
+  const ctx = { SpreadsheetApp: { getActiveSpreadsheet: () => ss }, Utilities: { formatDate: fmtDate_, parseDate: mockParseDate }, Date, String, Number, isFinite, Error };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   ctx.addCustomer_({ 契約日: '2026-09-03', 顧客名: '柊木邸', 住所: '江戸川区西小岩3-3-3', '電話番号①': '03-0000-0003', '契約金額(万円)': 150, 集客経路: 'チラシ', 担当C: '佳人' });
   const grid = ss._sheets['顧客']._grid;
@@ -371,7 +408,7 @@ const fmtDate_ = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => props[k] }) },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => 200, getContentText: () => JSON.stringify({ aud: 'cid', email: 'owner@example.com', email_verified: 'true', exp: String(Math.floor(Date.now() / 1000) + 600) }) }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
-    Utilities: { formatDate: fmtDate_ }, JSON, Date, Number, String, Error, Object, encodeURIComponent, isFinite,
+    Utilities: { formatDate: fmtDate_, parseDate: mockParseDate }, JSON, Date, Number, String, Error, Object, encodeURIComponent, isFinite,
   };
   vm.createContext(ctx); vm.runInContext(src, ctx);
   const out = ctx.doPost({ postData: { contents: JSON.stringify({ idToken: 't', action: 'addCustomer', customer: { 契約日: '2026-09-10', 顧客名: '梅沢邸', 集客経路: '紹介', 担当C: '塩野' } }) } });

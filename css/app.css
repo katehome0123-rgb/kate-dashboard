@@ -352,6 +352,8 @@ body.noscroll { overflow: hidden; }
 .tc-arrow { color: var(--ink2); font-size: 11px; }
 .tc-list { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 14px; padding: 0 16px 14px; border-top: 1px solid var(--line); margin-top: 2px; padding-top: 10px; }
 .tc-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; cursor: pointer; }
-.tc-item input { width: 18px; height: 18px; flex: none; }
+.tc-item input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
 .tc-item.tc-checked span { color: var(--ink2); text-decoration: line-through; }
+.tc-item.tc-busy { opacity: .55; }
+.tc-item.tc-busy input { cursor: wait; }
 @media (max-width: 520px) { .tc-list { grid-template-columns: 1fr; } }
