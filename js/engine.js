@@ -233,14 +233,19 @@ export const leadPersons = (leads) => {
   return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
 };
 
-// ---- 案件: 反響のうち「連絡つかず」「成約」以外(まだ動いている、または結果待ちのもの) ----
-export const DEALS_EXCLUDE = ['連絡つかず', '成約'];
-export function dealsList(leads, { section = '' } = {}) {
+// ---- 案件: 反響のうち「連絡つかず」「成約」「不成約」以外(まだ残っている案件) ----
+export const DEALS_EXCLUDE = ['連絡つかず', '成約', '不成約'];
+export function dealsList(leads, { section = '', region = '', person = '', today = todayStr() } = {}) {
+  const q = String(region || '').trim();
   const pool = (leads || []).filter((l) => {
     const res = l['結果'] || '';
     if (DEALS_EXCLUDE.includes(res)) return false;
-    return !section || l['区分'] === section;
+    if (section && l['区分'] !== section) return false;
+    if (person && l['担当'] !== person) return false;
+    if (q && !String(l['地域'] || '').includes(q)) return false;
+    return true;
   });
+  const t = utc(today);
   return pool.map((l) => ({
     name: l['邸名'] || '',
     section: l['区分'] || '',
@@ -249,7 +254,11 @@ export function dealsList(leads, { section = '' } = {}) {
     result: l['結果'] || '(結果待ち)',
     date: leadDate(l),
     region: l['地域'] || '',
-  })).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  })).sort((a, b) => {
+    const da = a.date ? Math.abs(utc(a.date) - t) : Infinity;
+    const db = b.date ? Math.abs(utc(b.date) - t) : Infinity;
+    return da - db;
+  });
 }
 export function dealsCounts(leads) {
   const base = { 自社: 0, ポータル: 0, 訪販: 0 };
@@ -259,6 +268,18 @@ export function dealsCounts(leads) {
     if (l['区分'] in base) base[l['区分']]++;
   }
   return base;
+}
+// 担当ごとの件数(タブの( )用)。担当が空の反響は数えない
+export function dealsPersonCounts(leads) {
+  const m = {};
+  for (const l of leads || []) {
+    const res = l['結果'] || '';
+    if (DEALS_EXCLUDE.includes(res)) continue;
+    const p = l['担当'];
+    if (!p) continue;
+    m[p] = (m[p] || 0) + 1;
+  }
+  return m;
 }
 
 // ---- アラート: アフターメンテ / 案件 ---------------------------------
@@ -1034,4 +1055,45 @@ export function taskBoard(data, { today = todayStr() } = {}) {
   });
   list.sort((a, b) => a.contractDate.localeCompare(b.contractDate) || a.name.localeCompare(b.name, 'ja'));
   return list;
+}
+
+// ---- 発注タスクの遅れアラート -------------------------------------------------
+// 決まった期限までに、決まった項目にチェックが入っていなければホームで知らせる。
+// 期限は契約日・着工日から計算する(due が null の案件=基準日が空はスキップ)。
+export const TASK_ALERT_STAGES = [
+  { key: 'w1', label: '契約して1週間', items: ['粗利予想', '顧客名簿', 'スキャン', '4分割', '職人発注', '足場発注', 'DropBox', '年賀状', '地図', 'マップ', 'ドライブ', '見本板発注'], due: (c) => (c['契約日'] ? E_addDays(c['契約日'], 7) : null) },
+  { key: 'w2', label: '契約して2週間', items: ['見本板届け'], due: (c) => (c['契約日'] ? E_addDays(c['契約日'], 14) : null) },
+  { key: 'before', label: '着工日の1週間前', items: ['足場越境', '打ち合せ', '打ち合わせ書職人送信', '塗料発注', '足場現調', '車', '挨拶', 'フェンス'], due: (c) => (c['着工日'] ? E_addDays(c['着工日'], -7) : null) },
+  { key: 'start1', label: '着工して1週間', items: ['着手'], due: (c) => (c['着工日'] ? E_addDays(c['着工日'], 7) : null) },
+  { key: 'startmonth', label: '着工して1か月', items: ['完工', 'BeforeAfter'], due: (c) => (c['着工日'] ? addMonths(c['着工日'], 1) : null) },
+];
+export function buildTaskAlerts(data, today = todayStr()) {
+  const custs = (data && data['顧客']) || [];
+  const open = custs.filter((c) => c['契約日'] && c['顧客名'] && !c['入金日']);
+  const doneMap = new Map();
+  for (const r of (data && data['タスク']) || []) {
+    if (!r['顧客名'] || !r['項目']) continue;
+    const k = taskKey_(r['顧客名'], r['契約日']);
+    if (!doneMap.has(k)) doneMap.set(k, new Set());
+    if (r['完了日']) doneMap.get(k).add(r['項目']);
+  }
+  const byStage = {}; for (const s of TASK_ALERT_STAGES) byStage[s.key] = [];
+  for (const c of open) {
+    const done = doneMap.get(taskKey_(c['顧客名'], c['契約日'])) || new Set();
+    for (const stage of TASK_ALERT_STAGES) {
+      const due = stage.due(c);
+      if (!due || due > today) continue;
+      const missing = stage.items.filter((it) => !done.has(it));
+      if (!missing.length) continue;
+      byStage[stage.key].push({
+        name: String(c['顧客名'] || '').split(/[\s　]/)[0] + '邸',
+        contractDate: String(c['契約日']).slice(0, 10),
+        startDate: c['着工日'] ? String(c['着工日']).slice(0, 10) : '',
+        due, days: daysBetween(due, today), missing,
+        person: c['担当C'] || '',
+      });
+    }
+  }
+  for (const key in byStage) byStage[key].sort((a, b) => b.days - a.days);
+  return TASK_ALERT_STAGES.map((s) => ({ key: s.key, label: s.label, items: s.items, rows: byStage[s.key] }));
 }

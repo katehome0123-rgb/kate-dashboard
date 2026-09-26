@@ -98,6 +98,9 @@ function draw() {
   const main = h('main', { class: 'main', id: 'main' }, bar, banner, route.mod.render(ctx));
   root.replaceChildren(h('div', { class: 'app' }, nav, main));
   document.title = `${route.label} | ケイトホーム`;
+  // メニューは切り替えるたびに作り直すので、スクロール位置もリセットされてしまう。
+  // 今いるページのタブが(PCなら縦に、スマホなら横に)見える位置まで、自動でスクロールし直す。
+  nav.querySelector('a[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function setData(data) {
