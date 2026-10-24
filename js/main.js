@@ -7,6 +7,7 @@ import * as home from './screens/home.js';
 import * as sales from './screens/sales.js';
 import * as analysis from './screens/analysis.js';
 import * as profit from './screens/profit.js';
+import * as pl from './screens/pl.js';
 import * as cash from './screens/cash.js';
 import * as maint from './screens/maint.js';
 import * as incentive from './screens/incentive.js';
@@ -30,6 +31,7 @@ const ICON = {
   sales: 'M4 20V10m6 10V4m6 16v-7m4 7H2',
   analysis: 'M12 3a9 9 0 1 0 9 9h-9zM15 3.5A9 9 0 0 1 20.5 9H15z',
   profit: 'M3 17l6-6 4 4 8-9m0 0h-5m5 0v5',
+  pl: 'M12 3v4M6 7h12M6 7l-3 7a4 4 0 0 0 8 0zM18 7l-3 7a4 4 0 0 0 8 0zM9 21h6',
   maint: 'M14.7 6.3a4 4 0 0 0-5 5L3 18l3 3 6.7-6.7a4 4 0 0 0 5-5l-2.5 2.5-2.2-.6-.6-2.2z',
   incentive: 'M12 3v18M16.5 7.5c0-1.7-2-3-4.5-3s-4.5 1.3-4.5 3 2 2.6 4.5 3 4.5 1.3 4.5 3-2 3-4.5 3-4.5-1.3-4.5-3',
   annual: 'M4 5h16v15H4zM4 10h16M9 3v4M15 3v4M8 14h3m2 0h3m-8 3h3',
@@ -60,6 +62,7 @@ const ROUTES = [
   { id: 'deals', label: '案件', mod: deals },
   { id: 'cash', label: '入出金', mod: cash },
   { id: 'profit', label: '利益率', mod: profit },
+  { id: 'pl', label: '黒字赤字', mod: pl },
   { id: 'analysis', label: '集客分析', mod: analysis },
   { id: 'annual', label: '年間収支', mod: annual },
   { id: 'ratio', label: '割合', mod: ratio },
