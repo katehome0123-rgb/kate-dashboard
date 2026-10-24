@@ -10,7 +10,10 @@ export function render(ctx) {
   const pm = E.profitByMedia(base);
   const { years } = pm;
   const cnt = (c) => (c.doneCount < c.count ? `${c.count}件(完工${c.doneCount})` : `${c.count}件`);
-  const cellTd = (c) => h('td', { class: 'num' }, c.rate === null ? '–' : E.fmtPct(c.rate, 1), c.count ? h('div', { class: 'small muted' }, cnt(c)) : null);
+  const cellTd = (c) => h('td', { class: 'num' },
+    c.rate === null ? '–' : E.fmtPct(c.rate, 1),
+    c.count ? h('div', { class: 'small muted' }, cnt(c)) : null,
+    c.count ? h('div', { class: 'small muted' }, `売上${E.fmtMan(c.sales, 0)}万・利益${E.fmtMan(E.yenToMan(c.landing), 0)}万`) : null);
   const trendTd = (r) => {
     const y = years[years.length - 1];
     const d = E.trend(r.byYear, years, y);
@@ -19,7 +22,7 @@ export function render(ctx) {
   const line = (r, cls) => h('tr', { class: cls || '' },
     h('td', null, r.group),
     years.map((y) => cellTd(r.byYear[y])),
-    h('td', { class: 'num' }, E.fmtPct(r.total.rate, 1), h('div', { class: 'small muted' }, cnt(r.total))),
+    cellTd(r.total),
     trendTd(r));
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, '利益率'),
@@ -35,5 +38,5 @@ export function render(ctx) {
           line(pm.all, 'tot'),
           pm.extra.length ? h('tr', { class: 'sec' }, h('td', { colspan: years.length + 3 }, '参考(契約本数には数えない案件)')) : null,
           pm.extra.map((r) => line(r))))),
-      h('p', { class: 'small muted' }, '訪問には足場、ポータルにはヌリカエ・窓口・リショップを含めています。「全体」は追加・下請けも含めた数字で、媒体の行は含めていません。完工日が入っていない案件は経費が確定していないため、件数には数えても利益率の計算には入れていません(表の「完工○」は計算に使った件数)。' + (tab ? `${tab}さんの表は、${tab}さんがクロ(担当C)またはアポ(担当A)の案件を、売上と同じ割合(クロ40%・アポ60%)で数えた利益率です。件数は共同担当でも1件と数えます。` : ''))));
+      h('p', { class: 'small muted' }, '訪問には足場、ポータルにはヌリカエ・窓口・リショップを含めています。「全体」は追加・下請けも含めた数字で、媒体の行は含めていません。完工日が入っていない案件は経費が確定していないため、件数には数えても利益率・売上・利益の計算には入れていません(表の「完工○」は計算に使った件数)。売上は契約金額(税込・万円)の合計、利益は着地利益(税抜売上－実際の経費・万円)の合計です。' + (tab ? `${tab}さんの表は、${tab}さんがクロ(担当C)またはアポ(担当A)の案件を、売上と同じ割合(クロ40%・アポ60%)で数えた利益率・売上・利益です。件数は共同担当でも1件と数えます。` : ''))));
 }
