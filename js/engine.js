@@ -329,7 +329,7 @@ export function buildMaintAlerts(data, custs, today, { soonDays = 30 } = {}) {
       else if (-over <= soonDays) state = 'soon';
       return { kind, due, doneOn, state, days: over };
     });
-    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s\u3000]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
+    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s　]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
     const od = steps.filter((x) => x.state === 'overdue');
     if (od.length) urgent.push({ ...base, kind: od[0].kind, due: od[0].due, days: od[0].days, others: od.length - 1 });
     else {
@@ -352,7 +352,7 @@ export function buildLeadAlerts(data, today) {
   const estDays = settingNum(data, '見積り忘れの確認日数', 7);
   const estimate = [], cancel = [];
   // 反響がすでに契約になっているか: IDではなく、同じ苗字で、反響日以後に契約した顧客がいるかで見る
-  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s\u3000]/)[0];
+  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s　]/)[0];
   const contracts = new Map();
   for (const c of data['顧客'] || []) {
     const k = sur(c['顧客名']); if (!k || !c['契約日']) continue;
@@ -696,6 +696,76 @@ export function salesBoard(data, custs, year, { today = todayStr(), persons = nu
   return { year, endM, blocks, hidden: pm.persons.filter((p) => !names.includes(p) && p !== NO_PERSON) };
 }
 
+// ---- 黒字赤字(営業担当ごとの収支) --------------------------------------------
+// 「【引き継ぎ】営業担当ごとの収支（赤字／黒字）を社内システムに表示する計算ルール」(2026/10/24)のとおり。
+// 取り分の粗利 = 粗利(万円) × 取り分の割合(担当C・担当Aの入り方で100%/40%/60%)。
+// 歩合・固定給があるのは塩野だけ。紹介料はポータル管理「ポータル」シートの行数 × 2万円。
+// 着地(黒字/赤字) = 取り分の粗利 − (歩合+固定給+紹介料)。佳人は歩合・固定給がないので「取り分の粗利 − 紹介料」。
+// 年ごとの集計は契約日の年(固定給・紹介料はそれぞれ対象月・反響日の年)。スプレッドシートは読むだけで、書き換えない。
+export const PL_PERSONS = ['塩野', '佳人'];
+export const PL_PORTAL_MEDIA = ['ヌリカエ', '窓口', 'リショップ', 'ぬりマッチ', 'プレマスタイル'];
+export const isPlPortal = (c) => PL_PORTAL_MEDIA.includes(c['集客経路']);
+export const PL_FIXED_PERSON = '塩野'; // 歩合・固定給があるのはこの人だけ
+export const PL_FIXED_SALARY_PER_MONTH = 30; // 万円
+export const PL_FIXED_SALARY_START = '2024-10'; // この月から数える(今月も1か月として数える)
+export const PL_REFERRAL_FEE_PER_LEAD = 2; // 万円(ポータル管理「ポータル」シートの行数 × これ)
+export const PL_RATE_PORTAL = 0.1, PL_RATE_OTHER = 0.2; // 歩合率(塩野のみ)
+
+// 対象者Xの、その案件の粗利のうち数える割合
+export function plShare(c, person) {
+  const C = c['担当C'] || '', A = c['担当A'] || '';
+  if (C === person) return A ? 0.4 : 1;
+  if (A === person) return 0.6;
+  return 0;
+}
+// 固定給の対象月数(年ごと)。開始月(2024-10)より前の年は0、開始年は開始月〜12月、今年は1月〜今月、それ以外は1〜12月。
+export function plFixedSalaryMonths(year, today = todayStr()) {
+  const [sy, sm] = PL_FIXED_SALARY_START.split('-').map(Number);
+  const nowY = Number(today.slice(0, 4)), nowM = Number(today.slice(5, 7));
+  if (year < sy || year > nowY) return 0;
+  const from = year === sy ? sm : 1;
+  const to = year === nowY ? nowM : 12;
+  return Math.max(0, to - from + 1);
+}
+// ポータル管理「ポータル」シートの行(= 反響のうち区分がポータルの行)。反響日が今日以前のものだけ数える。
+export function plPortalLeads(data, today = todayStr()) {
+  return (data['反響'] || []).filter((l) => l['区分'] === 'ポータル' && l['反響日'] && l['反響日'] <= today);
+}
+// 対象者Xの、ある年(nullなら年を問わない=累計)の収支
+export function plPersonYear(custs, portalLeads, person, year, today = todayStr()) {
+  const rows = custs.filter((c) => c['契約日'] && c['契約日'] <= today && (year === null || c._year === year) && plShare(c, person) > 0);
+  const take = (c) => c._gross * plShare(c, person);
+  const portalRows = rows.filter((c) => isPlPortal(c));
+  const otherRows = rows.filter((c) => !isPlPortal(c));
+  const sum = (list) => list.reduce((s, c) => s + take(c), 0);
+  const gross = sum(rows), grossPortal = sum(portalRows), grossOther = sum(otherRows);
+  const isFixed = person === PL_FIXED_PERSON;
+  const commission = isFixed ? grossPortal * PL_RATE_PORTAL + grossOther * PL_RATE_OTHER : 0;
+  const yearsForTotal = () => [...new Set(custs.filter((c) => plShare(c, person) > 0).map((c) => c._year).filter(Boolean))];
+  const months = !isFixed ? 0 : year === null ? yearsForTotal().reduce((s, y) => s + plFixedSalaryMonths(y, today), 0) : plFixedSalaryMonths(year, today);
+  const fixedSalary = isFixed ? months * PL_FIXED_SALARY_PER_MONTH : 0;
+  const leads = portalLeads.filter((l) => l['担当'] === person && (year === null || yearOf(l['反響日']) === year));
+  const leadCount = leads.length, referral = leadCount * PL_REFERRAL_FEE_PER_LEAD;
+  const landing = gross - commission - fixedSalary - referral;
+  const unDone = rows.filter((c) => !c._done).length;
+  return { year, count: rows.length, unDone, gross, grossPortal, grossOther, commission, fixedSalary, months, leadCount, referral, landing };
+}
+// 対象者が1件でも関わった契約年の一覧(古い順)
+export function plPersonYears(custs, person) {
+  return [...new Set(custs.filter((c) => plShare(c, person) > 0).map((c) => c._year).filter(Boolean))].sort((a, b) => a - b);
+}
+// 対象者Xの、年ごとの行+合計行
+export function plPersonReport(data, custs, person, today = todayStr()) {
+  const portalLeads = plPortalLeads(data, today);
+  const years = plPersonYears(custs, person);
+  const rows = years.map((y) => plPersonYear(custs, portalLeads, person, y, today));
+  const total = plPersonYear(custs, portalLeads, person, null, today);
+  return { person, years, rows, total };
+}
+export function plAllPersonReports(data, custs, persons = PL_PERSONS, today = todayStr()) {
+  return persons.map((p) => plPersonReport(data, custs, p, today));
+}
+
 // ---- ポータル: 何社紹介の何番手が決まりやすいか ------------------------------------
 // 反響(区分=ポータル)の「紹介数」(何社に紹介されたか)と「番手」(何番目に見積りを出したか)を数字で読み、
 // 結果が 成約/不成約 のものから 番手×紹介数 の成約率を出す(結果待ちは分母に入れない)。
@@ -1033,7 +1103,6 @@ export function flyerSummary(rows, { year = 0 } = {}) {
   const rowsOut = groups.map((g) => ({ name: g, ...line(use.filter((r) => r.media === g)) })).sort((a, b) => b.budget - a.budget);
   return { rows: rowsOut, total: { name: '合計', ...line(use) } };
 }
-
 // ---- 発注チェック(タスク) -------------------------------------------------
 // 契約日と顧客名がそろったら自動で作る項目(Code.gsのTASK_TEMPLATEと同じ並び)。左右裏の挨拶・洗浄挨拶・養生説明は「挨拶」1つにまとめてある
 export const TASK_TEMPLATE = ['粗利予想', '顧客名簿', 'スキャン', '4分割', '職人発注', '足場発注', 'DropBox', '年賀状', '地図', 'マップ', 'ドライブ', '見本板発注', '見本板届け', '足場越境', '打ち合せ', '打ち合わせ書職人送信', '塗料発注', '足場現調', '車', '挨拶', 'フェンス', '着手', '完工', 'BeforeAfter'];
