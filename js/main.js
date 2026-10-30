@@ -24,6 +24,7 @@ import * as tasks from './screens/tasks.js';
 import * as expense from './screens/expense.js';
 import * as customerform from './screens/customerform.js';
 import * as deals from './screens/deals.js';
+import * as salary from './screens/salary.js';
 
 const DEMO = new URLSearchParams(location.search).has('demo');
 const ICON = {
@@ -48,6 +49,7 @@ const ICON = {
   start: 'M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6',
   cash: 'M3 7h18v10H3zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM6 10v4m12-4v4',
   deals: 'M3 7h18v13H3zM8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18',
+  salary: 'M3 6h18v12H3zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM6 9v.01M18 9v.01M6 15v.01M18 15v.01',
 };
 const ROUTES = [
   { id: 'home', label: 'ホーム', mod: home },
@@ -68,6 +70,7 @@ const ROUTES = [
   { id: 'ratio', label: '割合', mod: ratio },
   { id: 'flyer', label: 'チラシ', mod: flyer },
   { id: 'incentive', label: 'インセン', mod: incentive },
+  { id: 'salary', label: '年収', mod: salary },
   { id: 'map', label: '施工地図', mod: map },
   { id: 'review', label: '口コミ', mod: review },
   { id: 'ranking', label: 'ランキング', mod: ranking },

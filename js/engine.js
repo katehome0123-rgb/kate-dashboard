@@ -329,7 +329,7 @@ export function buildMaintAlerts(data, custs, today, { soonDays = 30 } = {}) {
       else if (-over <= soonDays) state = 'soon';
       return { kind, due, doneOn, state, days: over };
     });
-    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s　]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
+    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s\u3000]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
     const od = steps.filter((x) => x.state === 'overdue');
     if (od.length) urgent.push({ ...base, kind: od[0].kind, due: od[0].due, days: od[0].days, others: od.length - 1 });
     else {
@@ -352,7 +352,7 @@ export function buildLeadAlerts(data, today) {
   const estDays = settingNum(data, '見積り忘れの確認日数', 7);
   const estimate = [], cancel = [];
   // 反響がすでに契約になっているか: IDではなく、同じ苗字で、反響日以後に契約した顧客がいるかで見る
-  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s　]/)[0];
+  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s\u3000]/)[0];
   const contracts = new Map();
   for (const c of data['顧客'] || []) {
     const k = sur(c['顧客名']); if (!k || !c['契約日']) continue;
@@ -1103,6 +1103,7 @@ export function flyerSummary(rows, { year = 0 } = {}) {
   const rowsOut = groups.map((g) => ({ name: g, ...line(use.filter((r) => r.media === g)) })).sort((a, b) => b.budget - a.budget);
   return { rows: rowsOut, total: { name: '合計', ...line(use) } };
 }
+
 // ---- 発注チェック(タスク) -------------------------------------------------
 // 契約日と顧客名がそろったら自動で作る項目(Code.gsのTASK_TEMPLATEと同じ並び)。左右裏の挨拶・洗浄挨拶・養生説明は「挨拶」1つにまとめてある
 export const TASK_TEMPLATE = ['粗利予想', '顧客名簿', 'スキャン', '4分割', '職人発注', '足場発注', 'DropBox', '年賀状', '地図', 'マップ', 'ドライブ', '見本板発注', '見本板届け', '足場越境', '打ち合せ', '打ち合わせ書職人送信', '塗料発注', '足場現調', '車', '挨拶', 'フェンス', '着手', '完工', 'BeforeAfter'];
@@ -1165,4 +1166,19 @@ export function buildTaskAlerts(data, today = todayStr()) {
   }
   for (const key in byStage) byStage[key].sort((a, b) => b.days - a.days);
   return TASK_ALERT_STAGES.map((s) => ({ key: s.key, label: s.label, items: s.items, rows: byStage[s.key] }));
+}
+
+// ---- 年収(基本給・歩合の実績) ------------------------------------
+// 「給与データ」シート(対象者・年・月・基本給・歩合)に入れた実際の金額をそのまま表示する。自動計算ではない。
+export const salaryPersons = (data) => [...new Set(((data && data['給与データ']) || []).map((r) => r['対象者']).filter(Boolean))];
+export const salaryYears = (data, person) => [...new Set(((data && data['給与データ']) || [])
+  .filter((r) => r['対象者'] === person).map((r) => Number(r['年'])).filter(Boolean))].sort((a, b) => b - a);
+export function salaryYear(data, person, year) {
+  const rows = ((data && data['給与データ']) || [])
+    .filter((r) => r['対象者'] === person && Number(r['年']) === Number(year))
+    .map((r) => ({ month: Number(r['月']), base: num(r['基本給']), commission: num(r['歩合']) }))
+    .sort((a, b) => a.month - b.month);
+  const totalBase = rows.reduce((sum, r) => sum + r.base, 0);
+  const totalCommission = rows.reduce((sum, r) => sum + r.commission, 0);
+  return { rows, totalBase, totalCommission, total: totalBase + totalCommission };
 }
