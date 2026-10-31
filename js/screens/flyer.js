@@ -7,16 +7,27 @@ const yen = (n) => (n === null || n === undefined ? '–' : `${E.fmtInt(n)}円`)
 const num0 = (n) => (n === null || n === undefined ? '–' : E.fmtInt(n));
 const ym = (r) => `${r.year}/${r.month}`;
 
-// チラシ・折込: 予算・枚数から単価、反響・成約から成約率、利益から予算に対するROIを見る
+// 黒字・赤字がひと目で分かる表示(マイナスは赤字色+「赤字」、プラスは「黒字」)。利益が未入力ならnullのまま「–」。
+const negClass = (n) => (n !== null && n !== undefined && n < 0 ? 'negv' : '');
+const profitText = (n) => (n === null || n === undefined ? '–' : `${n < 0 ? '−' : '+'}${man(Math.abs(n))}万円`);
+const profitStatus = (n) => (n === null || n === undefined ? '' : n < 0 ? '赤字' : '黒字');
+const profitEl = (n) => h('span', { class: negClass(n) }, profitText(n));
+
+// チラシ・折込: 予算・枚数から単価、反響・成約から成約率、利益から予算に対するROIと利益率(利益÷売上)、黒字/赤字を見る
 export function render(ctx) {
-  const st = (ctx.state.flyer ||= { year: 0, shown: 20 });
+  const st = (ctx.state.flyer ||= { year: 0, shown: 20, tab: '' });
   const allRows = E.flyerRows(ctx.data);
   const years = E.flyerYears(allRows);
   if (st.year !== 0 && !years.includes(st.year)) st.year = 0;
   const sum = E.flyerSummary(allRows, { year: st.year });
   const rows = st.year ? allRows.filter((r) => r.year === st.year) : allRows;
-  const shown = rows.slice(0, st.shown);
   const scope = st.year ? `${st.year}年` : '累計';
+
+  // 配布の一覧のタブ(媒体=チラシ/折込。データにある媒体だけをタブにする)
+  const mediaList = [...new Set(rows.map((r) => r.media).filter(Boolean))];
+  if (!mediaList.includes(st.tab)) st.tab = mediaList[0] || '';
+  const tabRows = st.tab ? rows.filter((r) => r.media === st.tab) : rows;
+  const shown = tabRows.slice(0, st.shown);
 
   if (!allRows.length) {
     return h('div', null,
@@ -33,15 +44,19 @@ export function render(ctx) {
     h('td', { class: 'num' }, r.leads === null ? '–' : r.leads),
     h('td', { class: 'num' }, r.deals === null ? '–' : r.deals),
     h('td', { class: 'num' }, pct(r.rate)),
+    h('td', { class: 'num' }, profitEl(r.profit)),
+    h('td', { class: `num ${negClass(r.marginRate)}` }, pct(r.marginRate)),
     h('td', { class: `num strongv ${r.roi !== null && r.roi < 0 ? 'negv' : ''}` }, pct(r.roi)));
 
   return h('div', null,
     h('div', { class: 'head' }, h('div', null, h('h1', null, 'チラシ・折込'),
-      h('div', { class: 'sub' }, '媒体ごとの予算・枚数・反響・成約率と、予算に対する利益の割合(ROI)'))),
+      h('div', { class: 'sub' }, '媒体ごとの予算・枚数・反響・成約率と、利益(黒字/赤字)・利益率・ROI'))),
     h('div', { class: 'controls' },
       segmented([{ value: 0, label: '累計' }, ...years.map((y) => ({ value: y, label: `${y}年` }))], st.year, (v) => { st.year = v; st.shown = 20; ctx.rerender(); }, '期間')),
     h('div', { class: 'grid' },
       kpi('予算合計', man(sum.total.budget), '万円', `${scope}・${sum.total.n}回配布`),
+      kpi('利益', profitEl(sum.total.profit), '', sum.total.profit === null ? '利益の入力がありません' : `${scope}は${profitStatus(sum.total.profit)}です`),
+      kpi('利益率', pct(sum.total.marginRate), '', '利益 ÷ 売上'),
       kpi('反響', sum.total.leads === null ? '–' : `${sum.total.leads}`, '件', ''),
       kpi('成約率', pct(sum.total.rate), '', sum.total.leads === null ? '反響件数の入力がありません' : `反響${sum.total.leads}件のうち成約${sum.total.deals}件`),
       kpi('ROI', pct(sum.total.roi), '', sum.total.roi === null ? '利益の入力がありません' : '利益 ÷ 予算')),
@@ -50,12 +65,14 @@ export function render(ctx) {
       h('div', { class: 'tablewrap' }, h('table', { class: 'ratiotable' },
         h('thead', null, h('tr', null, h('th', null, '媒体'), h('th', { class: 'num' }, '回数'), h('th', { class: 'num' }, '予算(万円)'),
           h('th', { class: 'num' }, '枚数'), h('th', { class: 'num' }, '単価'), h('th', { class: 'num' }, '反響'), h('th', { class: 'num' }, '成約'),
-          h('th', { class: 'num' }, '成約率'), h('th', { class: 'num' }, 'ROI'))),
+          h('th', { class: 'num' }, '成約率'), h('th', { class: 'num' }, '利益'), h('th', { class: 'num' }, '利益率'), h('th', { class: 'num' }, 'ROI'))),
         h('tbody', null, sum.rows.map((r) => sumRow(r)), sumRow(sum.total, 'tot')))),
-      h('p', { class: 'small muted' }, '単価は 予算 ÷ 枚数。反響・成約・売上・利益は、まだ結果が出ていない配布(空欄)を除いた回だけで合計しています。ROIは 利益 ÷ 予算 です。')),
+      h('p', { class: 'small muted' }, '単価は 予算 ÷ 枚数。反響・成約・売上・利益は、まだ結果が出ていない配布(空欄)を除いた回だけで合計しています。利益がマイナスの場合は赤字(赤字色)で表示しています。利益率は 利益 ÷ 売上、ROIは 利益 ÷ 予算 です。')),
     h('div', { class: 'card' },
-      h('h2', null, `配布の一覧(${rows.length}件)`),
-      rows.length ? h('div', { class: 'custlist' }, shown.map((r) => h('div', { class: 'flyerrow' },
+      h('h2', null, `配布の一覧(${tabRows.length}件)`),
+      mediaList.length > 1 ? h('div', { class: 'controls', style: 'margin-bottom:8px' },
+        segmented(mediaList.map((m) => ({ value: m, label: m })), st.tab, (v) => { st.tab = v; st.shown = 20; ctx.rerender(); }, '媒体')) : null,
+      tabRows.length ? h('div', { class: 'custlist' }, shown.map((r) => h('div', { class: 'flyerrow' },
         h('div', { class: 'cr-top' },
           h('span', { class: 'cr-name' }, `${ym(r)}　${r.media}`),
           h('span', { class: 'cr-amt' }, `${man(r.budget)}万円`)),
@@ -66,6 +83,8 @@ export function render(ctx) {
           h('span', null, r.leads === null ? '反響–' : `反響${r.leads}件`),
           h('span', null, r.deals === null ? '成約–' : `成約${r.deals}件(${pct(r.rate)})`),
           h('span', null, r.sales === null ? '売上–' : `売上${man(r.sales)}万円`),
-          h('span', null, r.roi === null ? 'ROI–' : `ROI${pct(r.roi)}`))))) : h('p', { class: 'notice' }, 'この期間の配布がありません。'),
-      rows.length > st.shown ? h('div', { class: 'controls', style: 'margin:10px 0 0' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 20; ctx.rerender(); } }, `もっと見る(あと${rows.length - st.shown}件)`)) : null));
+          h('span', null, r.profit === null ? '利益–' : [`利益`, profitEl(r.profit), `(${profitStatus(r.profit)})`]),
+          h('span', null, r.marginRate === null ? '利益率–' : `利益率${pct(r.marginRate)}`),
+          h('span', null, r.roi === null ? 'ROI–' : `ROI${pct(r.roi)}`))))) : h('p', { class: 'notice' }, 'この媒体の配布がありません。'),
+      tabRows.length > st.shown ? h('div', { class: 'controls', style: 'margin:10px 0 0' }, h('button', { class: 'btn', type: 'button', onclick: () => { st.shown += 20; ctx.rerender(); } }, `もっと見る(あと${tabRows.length - st.shown}件)`)) : null));
 }
