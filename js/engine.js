@@ -1069,9 +1069,10 @@ export function flyerRows(data) {
     const profit = isEmpty(r['利益(円)']) ? null : num(r['利益(円)']);
     const leads = isEmpty(r['反響件数']) ? null : num(r['反響件数']);
     const deals = isEmpty(r['成約件数']) ? null : num(r['成約件数']);
+    const net = profit === null ? null : profit - budget; // 正味 = 利益(契約の粗利) − 予算(その配布にかけた広告費)。黒字/赤字はこちらで判定する(利益だけでは広告費が引かれていない)
     return {
       year: Number(r['年']) || 0, month: Number(r['月']) || 0, media: String(r['媒体'] || '').trim(),
-      budget, count, sales, profit, agency: r['委託業者'] || '', area: r['反響エリア'] || '', leads, deals,
+      budget, count, sales, profit, net, agency: r['委託業者'] || '', area: r['反響エリア'] || '', leads, deals,
       unit: count ? budget / count : null,
       roi: budget && profit !== null ? profit / budget : null, // ROI = 利益 ÷ 予算(広告費に対してどれだけ利益が出たか)
       marginRate: sales && profit !== null ? profit / sales : null, // 利益率 = 利益 ÷ 売上(売上のうちどれだけ利益が残ったか)
@@ -1091,11 +1092,12 @@ export function flyerSummary(rows, { year = 0 } = {}) {
     const withBoth = list.filter((r) => r.leads !== null && r.deals !== null); // 成約率は、反響・成約とも入力済みの回だけで数える
     const sales = withSales.length ? withSales.reduce((s, r) => s + r.sales, 0) : null;
     const profit = withProfit.length ? withProfit.reduce((s, r) => s + r.profit, 0) : null;
+    const net = profit === null ? null : profit - budget; // 正味 = 利益合計 − 予算合計。黒字/赤字はこちらで判定する
     const leads = withLeads.length ? withLeads.reduce((s, r) => s + r.leads, 0) : null;
     const deals = withBoth.length ? withBoth.reduce((s, r) => s + r.deals, 0) : null;
     const leadsForRate = withBoth.length ? withBoth.reduce((s, r) => s + r.leads, 0) : 0;
     return {
-      n: list.length, budget, count, unit: count ? budget / count : null, sales, profit,
+      n: list.length, budget, count, unit: count ? budget / count : null, sales, profit, net,
       roi: budget && profit !== null ? profit / budget : null,
       marginRate: sales && profit !== null ? profit / sales : null,
       leads, deals,
