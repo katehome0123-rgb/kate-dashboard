@@ -1073,7 +1073,8 @@ export function flyerRows(data) {
       year: Number(r['年']) || 0, month: Number(r['月']) || 0, media: String(r['媒体'] || '').trim(),
       budget, count, sales, profit, agency: r['委託業者'] || '', area: r['反響エリア'] || '', leads, deals,
       unit: count ? budget / count : null,
-      roi: budget && profit !== null ? profit / budget : null,
+      roi: budget && profit !== null ? profit / budget : null, // ROI = 利益 ÷ 予算(広告費に対してどれだけ利益が出たか)
+      marginRate: sales && profit !== null ? profit / sales : null, // 利益率 = 利益 ÷ 売上(売上のうちどれだけ利益が残ったか)
       rate: leads && deals !== null ? deals / leads : null, // 反響があっても成約件数が未入力ならnull(0%と混同しない)
     };
   }).sort((a, b) => (b.year - a.year) || (b.month - a.month) || a.media.localeCompare(b.media, 'ja'));
@@ -1095,7 +1096,9 @@ export function flyerSummary(rows, { year = 0 } = {}) {
     const leadsForRate = withBoth.length ? withBoth.reduce((s, r) => s + r.leads, 0) : 0;
     return {
       n: list.length, budget, count, unit: count ? budget / count : null, sales, profit,
-      roi: budget && profit !== null ? profit / budget : null, leads, deals,
+      roi: budget && profit !== null ? profit / budget : null,
+      marginRate: sales && profit !== null ? profit / sales : null,
+      leads, deals,
       rate: leadsForRate ? deals / leadsForRate : null,
     };
   };
@@ -1166,6 +1169,39 @@ export function buildTaskAlerts(data, today = todayStr()) {
   }
   for (const key in byStage) byStage[key].sort((a, b) => b.days - a.days);
   return TASK_ALERT_STAGES.map((s) => ({ key: s.key, label: s.label, items: s.items, rows: byStage[s.key] }));
+}
+
+// ---- 発注タスク(現場タスクシートをそのまま見る・アプリ内操作なし) --------------------
+// スプレッドシートの「現場タスク」シートは、邸ごとに2列(チェック・項目名)のペアが横に並ぶ升目。
+// 1行目=邸名(2列を結合)、2行目=発注日・担当(結合)、3行目以降がチェック(TRUE/FALSE)と項目名。
+// ここではその升目をそのまま読むだけで、チェックの付け外しはスプレッドシート側で行う(アプリからは書き込まない)。
+export function siteTaskBoard(data) {
+  const grid = (data && data['現場タスク']) || [];
+  if (!Array.isArray(grid) || grid.length < 3) return [];
+  const nameRow = grid[0] || [];
+  const infoRow = grid[1] || [];
+  const out = [];
+  for (let col = 0; col < nameRow.length; col += 2) {
+    const name = String(nameRow[col] || '').trim();
+    if (!name) continue;
+    const info = String(infoRow[col] || '').trim();
+    const [orderDate, person] = info.split(/[\s　]+/).filter(Boolean);
+    const items = [];
+    for (let r = 2; r < grid.length; r++) {
+      const row = grid[r] || [];
+      const label = String(row[col + 1] || '').trim();
+      if (!label) continue;
+      items.push({ item: label, done: row[col] === true });
+    }
+    if (!items.length) continue;
+    const pending = items.filter((i) => !i.done).map((i) => i.item);
+    out.push({
+      name, orderDate: orderDate || '', person: person || '',
+      items, pending, doneCount: items.length - pending.length, total: items.length,
+    });
+  }
+  out.sort((a, b) => (a.orderDate || '').localeCompare(b.orderDate || ''));
+  return out;
 }
 
 // ---- 年収(基本給・歩合の実績) ------------------------------------
