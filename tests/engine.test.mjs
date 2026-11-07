@@ -430,6 +430,24 @@ test('売上ボード: 累計・本数・PH(月平均)。月数は今月まで�
   assert.equal(y25.ph.months, 9); assert.equal(y25.total.sales, 300);
 });
 
+test('売上ボード: ()の契約本数は、担当Cだけなら担当Cに、担当Cと担当Aの両方がいる案件は担当Aだけに入る', () => {
+  const mk = (d, C, A) => ({ 契約日: d, 顧客名: d + C + (A || ''), '契約金額(万円)': 100, '粗利(万円・手入力)': 30, 担当C: C, 担当A: A });
+  const data = { 顧客: [
+    mk('2026-01-10', '甲'), // 担当Cだけ → 甲に1本
+    mk('2026-02-10', '甲', '乙'), // 共同担当 → 乙だけに1本(甲には入らない)
+    mk('2026-02-20', '甲', '乙'), // もう1件の共同担当
+  ] };
+  const custs = E.enrichAll(data);
+  const b = E.salesBoard(data, custs, 2026, { today: '2026-04-15', persons: ['甲', '乙'] });
+  const kou = b.blocks.find((x) => x.name === '甲'), otsu = b.blocks.find((x) => x.name === '乙'), all = b.blocks.find((x) => x.name === null);
+  assert.equal(kou.total.count, 1); // 担当Cだけの1件のみ
+  assert.equal(otsu.total.count, 2); // 共同担当の2件は両方とも担当Aの乙に入る
+  assert.equal(all.total.count, 3); // 全体は重複なしで3件
+  // 着工粗利タブなど(countBothOnJoint既定=true)では従来通り、共同担当は二人とも1本と数える
+  const pmStart = E.personMonthly(custs, 2026, '契約日');
+  assert.equal(pmStart.total.by['甲'].count, 3); assert.equal(pmStart.total.by['乙'].count, 2);
+});
+
 test('ポータル: 番手×紹介数の成約率(結果待ちは分母に入れない・空欄は数えない)', () => {
   const P = (n, k, r, extra = {}) => ({ 区分: 'ポータル', 反響日: '2026-03-01', 担当: 'A', 紹介数: n, 番手: k, 結果: r, ...extra });
   const leads = [
