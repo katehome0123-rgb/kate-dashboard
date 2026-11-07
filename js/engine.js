@@ -86,9 +86,11 @@ export const yearsOfCustomers = (custs) => [...new Set(custs.map((c) => c._year)
 
 // ---- 担当者別の月次(売上・粗利・契約本数) -----------------------
 // 売上・粗利は按分: 担当Cのみ→100%、担当Cとアポ(担当A)がいる→C 40% : A 60%、担当Aだけ→A 60%(既存の売上シートと同じ)。
-// 契約本数は既存シートと同じく、共同担当の案件は二人とも1本と数える(全体は重複なし)。追加・下請けは本数に数えない。
+// 契約本数: countBothOnJoint=true(既定・着工粗利タブ等)では、共同担当の案件は二人とも1本と数える(全体は重複なし)。
+// countBothOnJoint=false(売上タブ)では、共同担当の案件は担当Aだけに1本を入れる(担当Cには入れない)。担当Cだけの案件は従来通り担当Cに入る。
+// どちらも追加・下請けは本数に数えない。
 export const NO_PERSON = '(担当なし)';
-export function personMonthly(custs, year, by = '契約日') {
+export function personMonthly(custs, year, by = '契約日', { countBothOnJoint = true } = {}) {
   const blank = () => ({ sales: 0, gross: 0, count: 0 });
   const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, all: blank(), by: {} }));
   const total = { all: blank(), by: {} };
@@ -108,9 +110,12 @@ export function personMonthly(custs, year, by = '契約日') {
     const n = c._count ? 1 : 0;
     r.all.sales += c._sales; r.all.gross += c._gross; r.all.count += n;
     total.all.sales += c._sales; total.all.gross += c._gross; total.all.count += n;
+    // 本数の割り当て先: countBothOnJoint=falseかつ担当C・担当Aの両方がいる案件は、担当Aだけに本数を入れる
+    const countOnlyTo = !countBothOnJoint && C && A ? A : null;
     for (const [name, share] of shares) {
-      put(r, name, c._sales * share, c._gross * share, n);
-      put(total, name, c._sales * share, c._gross * share, n);
+      const cnt = countOnlyTo === null ? n : (name === countOnlyTo ? n : 0);
+      put(r, name, c._sales * share, c._gross * share, cnt);
+      put(total, name, c._sales * share, c._gross * share, cnt);
       totals.set(name, (totals.get(name) || 0) + c._sales * share);
     }
   }
@@ -668,7 +673,8 @@ export const startYears = (custs) => [...new Set(custs.map((c) => yearOf(c['着�
 const idxOf = (ym) => { const [y, m] = String(ym).slice(0, 7).split('-').map(Number); return y * 12 + (m - 1); };
 export function salesBoard(data, custs, year, { today = todayStr(), persons = null } = {}) {
   const names = persons || activePersons(data, custs);
-  const pm = personMonthly(custs, year);
+  // 売上タブの契約本数は、担当Cと担当Aの両方がいる案件は担当Aだけに1本を入れる(countBothOnJoint:false)
+  const pm = personMonthly(custs, year, '契約日', { countBothOnJoint: false });
   const nowY = Number(today.slice(0, 4)), nowM = Number(today.slice(5, 7));
   const endM = year < nowY ? 12 : year === nowY ? nowM : 0;
   const blank = { sales: 0, gross: 0, count: 0 };
