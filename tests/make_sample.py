@@ -61,7 +61,7 @@ for c in custs:
     if c.get('完工日') and rv.random() < 0.4: c['口コミ'] = '〇'
 for c in custs:
     if c.get('完工日') and random.random() < 0.7:
-        c['メンテ1か月'] = (datetime.date.fromisoformat(c['完工日'])+datetime.timedelta(days=32)).isoformat()
+        c['メンテ1年'] = (datetime.date.fromisoformat(c['完工日'])+datetime.timedelta(days=365)).isoformat()
 # 案件アラートの見本(今日を基準にした最近の反響)
 today = datetime.date.today()
 def add_lead(days_ago, sec, media, result, survey_ago=None, quote=False):
