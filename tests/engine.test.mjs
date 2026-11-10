@@ -101,34 +101,35 @@ test('担当Aだけの案件は60%分だけ担当者に入り、全体には100%
 
 test('メンテ: 予定日の計算と、1案件1行・3回の進み具合・開始日・追加案件の扱い', () => {
   assert.equal(E.addMonths('2026-01-31', 1), '2026-02-28');
+  assert.equal(E.dueDate('2026-08-15', '1年'), '2027-08-15');
   assert.equal(E.dueDate('2026-08-15', '5年'), '2031-08-15');
   assert.equal(E.dueDate('2026-08-15', '10年'), '2036-08-15');
-  const mk = (id, name, extra) => E.enrichCustomer({ 顧客ID: id, 契約日: '2026-05-01', 顧客名: name, 完工日: '2026-06-10', '契約金額(万円)': 100, 住所: '江戸川区A1-1', ...extra });
-  const c1 = mk('C1', '甲　太郎'); // 1か月後=7/10 → 超過
-  const c2 = mk('C2', '乙　太郎', { メンテ1か月: '2026-07-15' }); // 実施済み
+  const mk = (id, name, extra) => E.enrichCustomer({ 顧客ID: id, 契約日: '2025-08-01', 顧客名: name, 完工日: '2025-09-10', '契約金額(万円)': 100, 住所: '江戸川区A1-1', ...extra });
+  const c1 = mk('C1', '甲　太郎'); // 1年後=2026-09-10 → 超過
+  const c2 = mk('C2', '乙　太郎', { メンテ1年: '2026-07-15' }); // 実施済み
   const c3 = mk('C3', '丙　太郎邸追'); // 追加は対象外
-  const c4 = mk('C4', '丁　太郎', { 完工日: '2026-09-01' }); // 1か月後=10/1 → 予告
-  const c5 = mk('C5', '戊　太郎', { 完工日: '2021-09-05' }); // 5年後=2026-09-05 も超過。1か月・5年の両方が超過 → 1行にまとめる
+  const c4 = mk('C4', '丁　太郎', { 完工日: '2025-09-25' }); // 1年後=2026-09-25 → 予告
+  const c5 = mk('C5', '戊　太郎', { 完工日: '2021-09-05' }); // 5年後=2026-09-05 も超過。1年・5年の両方が超過 → 1行にまとめる
   const data = { 設定: [] };
   const a = E.buildMaintAlerts(data, [c1, c2, c3, c4, c5], '2026-09-20');
   assert.deepEqual(a.urgent.map((x) => x.custId).sort(), ['C1', 'C5']);
   const r5 = a.urgent.find((x) => x.custId === 'C5');
-  assert.equal(r5.kind, '1か月'); assert.equal(r5.others, 1); assert.equal(r5.steps.length, 3);
-  assert.equal(a.urgent.find((x) => x.custId === 'C1').days, 72);
+  assert.equal(r5.kind, '1年'); assert.equal(r5.others, 1); assert.equal(r5.steps.length, 3);
+  assert.equal(a.urgent.find((x) => x.custId === 'C1').days, 10);
   assert.deepEqual(a.notice.map((x) => x.custId), ['C4']);
   assert.equal(a.urgent.filter((x) => x.custId === 'C5').length, 1); // 3回分でも案件は1行だけ
-  data.設定 = [{ 項目: 'メンテ確認の開始日', '値(入力)': '2026-08-01' }]; // 7/10予定のC1は開始日より前なので出さない
+  data.設定 = [{ 項目: 'メンテ確認の開始日', '値(入力)': '2026-09-15' }]; // 9/10予定のC1は開始日より前なので出さない
   assert.deepEqual(E.buildMaintAlerts(data, [c1], '2026-09-20').urgent, []);
   assert.ok(E.mapHref('江戸川区南篠崎町4-15-10').startsWith('https://www.google.com/maps/dir/?api=1'));
   assert.ok(E.mapHref('江戸川区南篠崎町4-15-10').endsWith(encodeURIComponent('江戸川区南篠崎町4-15-10')));
 });
 
 test('メンテ: 日付でも記号(○)でも、何か入っていれば対応済みになる', () => {
-  const mk = (extra) => E.enrichCustomer({ 顧客ID: 'C1', 契約日: '2026-05-01', 顧客名: '甲　太郎', 完工日: '2026-06-10', '契約金額(万円)': 100, ...extra });
+  const mk = (extra) => E.enrichCustomer({ 顧客ID: 'C1', 契約日: '2025-07-01', 顧客名: '甲　太郎', 完工日: '2025-08-01', '契約金額(万円)': 100, ...extra });
   const q = (c) => E.buildMaintAlerts({ 設定: [] }, [c], '2026-09-20').urgent.length;
   assert.equal(q(mk({})), 1);
-  assert.equal(q(mk({ メンテ1か月: '2026-07-15' })), 0);
-  assert.equal(q(mk({ メンテ1か月: '○' })), 0);
+  assert.equal(q(mk({ メンテ1年: '2026-07-15' })), 0);
+  assert.equal(q(mk({ メンテ1年: '○' })), 0);
 });
 
 test('案件アラート(ポータルのみ): キャンセル忘れ=紹介6〜7日で結果が空欄、見積り忘れ=現調から7日で見積日が空', () => {
@@ -775,4 +776,43 @@ test('発注タスクの遅れアラート: 契約日・着工日からの期限
   // D(タスク未作成・着工日なし)は、契約から1週間・2週間ステージには全項目が未チェックとして出るが、着工日が空の着工まわりのステージには出ない
   assert.deepEqual(byKey.w1.rows.find((r) => r.name === 'D邸').missing, E.TASK_ALERT_STAGES[0].items);
   assert.equal(byKey.before.rows.some((r) => r.name === 'D邸'), false);
+});
+
+// ---- 黒字赤字: 一人頭の経費按分・役員報酬(実額) ----------------------------------
+const plOverheadData = () => ({
+  顧客: [
+    { 契約日: '2025-02-10', 顧客名: '佳人分', '契約金額(万円)': 3000, '粗利(万円・手入力)': 2000, 担当C: '佳人', 集客経路: '訪問' },
+    { 契約日: '2025-03-10', 顧客名: '丙分', '契約金額(万円)': 1500, '粗利(万円・手入力)': 1000, 担当C: '丙', 集客経路: '訪問' },
+  ],
+  入出金: [],
+  年間収支: { 2025: [
+    ['2025年', null, null, '1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月', '合計'],
+    gridRow('売上高', null, pad12([0])), gridRow('現場支払', null, pad12([0])), gridRow('入金', null, pad12([0])),
+    gridRow('粗利益', null, pad12([0])),
+    gridRow('固定', '役員報酬', pad12([6000000])), gridRow(null, 'その他固定', pad12([10000000])),
+    gridRow('変動', '人件費', pad12([4000000])), gridRow(null, 'その他変動', pad12([6000000])),
+    gridRow(null, '合計', pad12([26000000])),
+    gridRow('純利益', null, pad12([0])),
+  ] },
+  設定: [{ 項目: '稼働人数', '値(入力)': '2025=2' }],
+});
+test('黒字赤字: 一人頭の経費按分 = (総経費−人件費)÷稼働人数 を全員から、役員報酬の実額は佳人だけ追加で差し引く', () => {
+  const d = plOverheadData();
+  const custs = E.enrichAll(d);
+  // 総経費2600万(固定1600万+変動1000万)、人件費1000万(役員報酬600万+人件費400万)、稼働人数2人
+  // → 一人頭(2600-1000)/2 = 800万
+  assert.equal(E.activeHeadcount(d, 2025), 2);
+  assert.equal(E.activeHeadcount(d, 2024), null); // 設定が無い年は按分なし
+
+  const kabito = E.plPersonReport(d, custs, '佳人', '2025-12-31');
+  const y = kabito.rows.find((r) => r.year === 2025);
+  assert.equal(y.overhead, 800);
+  assert.equal(y.directorComp, 600); // 役員報酬の実額(600万)をそのまま
+  assert.equal(y.landing, 2000 - 800 - 600); // 600万の黒字
+
+  const hei = E.plPersonReport(d, custs, '丙', '2025-12-31');
+  const y2 = hei.rows.find((r) => r.year === 2025);
+  assert.equal(y2.overhead, 800); // 佳人以外も同じ按分を受ける
+  assert.equal(y2.directorComp, 0); // 役員報酬は佳人以外からは引かない
+  assert.equal(y2.landing, 1000 - 800); // 200万の黒字
 });
