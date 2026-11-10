@@ -288,9 +288,9 @@ export function dealsPersonCounts(leads) {
 }
 
 // ---- アラート: アフターメンテ / 案件 ---------------------------------
-// 完工日の 1か月後 / 5年後 / 10年後 が点検の予定日(1件の案件に3回)。
-// 実施日は顧客の行の「メンテ1か月」「メンテ5年」「メンテ10年」列に入れる。
-export const MAINT_KINDS = ['1か月', '5年', '10年'];
+// 完工日の 1年後 / 5年後 / 10年後 が点検の予定日(1件の案件に3回)。
+// 実施日は顧客の行の「メンテ1年」「メンテ5年」「メンテ10年」列に入れる。
+export const MAINT_KINDS = ['1年', '5年', '10年'];
 export const maintCol = (kind) => `メンテ${kind}`;
 const pad = (n) => String(n).padStart(2, '0');
 export function addMonths(dateStr, n) {
@@ -300,7 +300,7 @@ export function addMonths(dateStr, n) {
   const last = new Date(Date.UTC(ty, tm, 0)).getUTCDate();
   return `${ty}-${pad(tm)}-${pad(Math.min(d, last))}`;
 }
-export const dueDate = (doneDate, kind) => addMonths(doneDate, kind === '1か月' ? 1 : kind === '5年' ? 60 : 120);
+export const dueDate = (doneDate, kind) => addMonths(doneDate, kind === '1年' ? 12 : kind === '5年' ? 60 : 120);
 const utc = (d) => { const [y, m, dd] = String(d).slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, dd); };
 export const daysBetween = (a, b) => Math.round((utc(b) - utc(a)) / 86400000); // a→b の日数
 export const todayStr = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -706,7 +706,11 @@ export function salesBoard(data, custs, year, { today = todayStr(), persons = nu
 // 「【引き継ぎ】営業担当ごとの収支（赤字／黒字）を社内システムに表示する計算ルール」(2026/10/24)のとおり。
 // 取り分の粗利 = 粗利(万円) × 取り分の割合(担当C・担当Aの入り方で100%/40%/60%)。
 // 歩合・固定給があるのは塩野だけ。紹介料はポータル管理「ポータル」シートの行数 × 2万円。
-// 着地(黒字/赤字) = 取り分の粗利 − (歩合+固定給+紹介料)。佳人は歩合・固定給がないので「取り分の粗利 − 紹介料」。
+// さらに全員、年間収支シートから計算した「一人頭の経費按分」を差し引く。佳人はこれに加えて、
+// 役員報酬(年間収支シートの実額)も差し引く。
+// 一人頭の経費按分 = (その年の総経費(固定+変動の合計) − 人件費(役員報酬+人件費の2項目の合計)) ÷ 稼働人数(設定シート)。
+// 稼働人数が設定されていない年は按分なし(0円)。今年はまだ終わっていない月を除く(completedMonths)。
+// 着地(黒字/赤字) = 取り分の粗利 − (歩合+固定給+紹介料) − 一人頭の経費按分 − (佳人のみ)役員報酬の実額。
 // 年ごとの集計は契約日の年(固定給・紹介料はそれぞれ対象月・反響日の年)。スプレッドシートは読むだけで、書き換えない。
 export const PL_PERSONS = ['塩野', '佳人'];
 export const PL_PORTAL_MEDIA = ['ヌリカエ', '窓口', 'リショップ', 'ぬりマッチ', 'プレマスタイル'];
@@ -716,6 +720,43 @@ export const PL_FIXED_SALARY_PER_MONTH = 30; // 万円
 export const PL_FIXED_SALARY_START = '2024-10'; // この月から数える(今月も1か月として数える)
 export const PL_REFERRAL_FEE_PER_LEAD = 2; // 万円(ポータル管理「ポータル」シートの行数 × これ)
 export const PL_RATE_PORTAL = 0.1, PL_RATE_OTHER = 0.2; // 歩合率(塩野のみ)
+export const PL_DIRECTOR_COMP_PERSON = '佳人'; // 役員報酬(年間収支シートの実額)を直接差し引く対象
+
+// 年間収支シートの指定した名前の項目(固定・変動どちらにあってもよい。同名が複数あれば合算)の、
+// 1月〜through月の合計(万円・絶対値)。経費のマイナス/プラスの入れ方が年によって違うため絶対値にする。
+function annualItemAbsMan(data, custs, year, name, through = 12) {
+  const book = annualBook(data, custs, year);
+  if (!book) return 0;
+  const yen = book.items.filter((it) => it.name === name).reduce((s, it) => s + sumTo(it.values, through), 0);
+  return Math.abs(yen) / 10000;
+}
+// その年の総経費(万円・絶対値) = 固定+変動の合計(シートの「合計」行と同じ)
+function annualTotalExpenseMan(data, custs, year, through = 12) {
+  const book = annualBook(data, custs, year);
+  if (!book) return 0;
+  return Math.abs(book.total('fixed', through) + book.total('variable', through)) / 10000;
+}
+// その年の人件費(万円) = 役員報酬+人件費(2つの項目名の合計)
+function annualPersonnelCostMan(data, custs, year, through = 12) {
+  return annualItemAbsMan(data, custs, year, '役員報酬', through) + annualItemAbsMan(data, custs, year, '人件費', through);
+}
+// 稼働人数(設定シートの「稼働人数」。「2024=2.5,2025=2.5,2026=2」のように書く)。その年の値が無ければnull(按分なし)
+export function activeHeadcount(data, year) {
+  const raw = settingValue(data, '稼働人数');
+  for (const part of raw.split(/[,、，\s]+/)) {
+    if (!part) continue;
+    const [y, n] = part.split(/[=＝:：]/);
+    const num = Number(n);
+    if (Number(y) === year && Number.isFinite(num) && num > 0) return num;
+  }
+  return null;
+}
+// 一人頭の経費按分(万円) = (総経費−人件費)÷稼働人数。稼働人数が設定されていない年は0(按分なし)
+function overheadPerHeadMan(data, custs, year, through = 12) {
+  const headcount = activeHeadcount(data, year);
+  if (!headcount) return 0;
+  return (annualTotalExpenseMan(data, custs, year, through) - annualPersonnelCostMan(data, custs, year, through)) / headcount;
+}
 
 // 対象者Xの、その案件の粗利のうち数える割合
 export function plShare(c, person) {
@@ -738,7 +779,7 @@ export function plPortalLeads(data, today = todayStr()) {
   return (data['反響'] || []).filter((l) => l['区分'] === 'ポータル' && l['反響日'] && l['反響日'] <= today);
 }
 // 対象者Xの、ある年(nullなら年を問わない=累計)の収支
-export function plPersonYear(custs, portalLeads, person, year, today = todayStr()) {
+export function plPersonYear(data, custs, portalLeads, person, year, today = todayStr()) {
   const rows = custs.filter((c) => c['契約日'] && c['契約日'] <= today && (year === null || c._year === year) && plShare(c, person) > 0);
   const take = (c) => c._gross * plShare(c, person);
   const portalRows = rows.filter((c) => isPlPortal(c));
@@ -752,9 +793,17 @@ export function plPersonYear(custs, portalLeads, person, year, today = todayStr(
   const fixedSalary = isFixed ? months * PL_FIXED_SALARY_PER_MONTH : 0;
   const leads = portalLeads.filter((l) => l['担当'] === person && (year === null || yearOf(l['反響日']) === year));
   const leadCount = leads.length, referral = leadCount * PL_REFERRAL_FEE_PER_LEAD;
-  const landing = gross - commission - fixedSalary - referral;
+  const isDirector = person === PL_DIRECTOR_COMP_PERSON;
+  const overhead = year === null
+    ? yearsForTotal().reduce((s, y) => s + overheadPerHeadMan(data, custs, y, completedMonths(y, today)), 0)
+    : overheadPerHeadMan(data, custs, year, completedMonths(year, today));
+  const directorComp = !isDirector ? 0
+    : year === null
+      ? yearsForTotal().reduce((s, y) => s + annualItemAbsMan(data, custs, y, '役員報酬', completedMonths(y, today)), 0)
+      : annualItemAbsMan(data, custs, year, '役員報酬', completedMonths(year, today));
+  const landing = gross - commission - fixedSalary - referral - overhead - directorComp;
   const unDone = rows.filter((c) => !c._done).length;
-  return { year, count: rows.length, unDone, gross, grossPortal, grossOther, commission, fixedSalary, months, leadCount, referral, landing };
+  return { year, count: rows.length, unDone, gross, grossPortal, grossOther, commission, fixedSalary, months, leadCount, referral, overhead, directorComp, landing };
 }
 // 対象者が1件でも関わった契約年の一覧(古い順)
 export function plPersonYears(custs, person) {
@@ -764,8 +813,8 @@ export function plPersonYears(custs, person) {
 export function plPersonReport(data, custs, person, today = todayStr()) {
   const portalLeads = plPortalLeads(data, today);
   const years = plPersonYears(custs, person);
-  const rows = years.map((y) => plPersonYear(custs, portalLeads, person, y, today));
-  const total = plPersonYear(custs, portalLeads, person, null, today);
+  const rows = years.map((y) => plPersonYear(data, custs, portalLeads, person, y, today));
+  const total = plPersonYear(data, custs, portalLeads, person, null, today);
   return { person, years, rows, total };
 }
 export function plAllPersonReports(data, custs, persons = PL_PERSONS, today = todayStr()) {
@@ -1035,7 +1084,7 @@ const SECTIONS = [
   ['基本', ['顧客名', '契約日', '集客経路', '担当C', '担当A', '年齢', '性別', '築年数']],
   ['連絡先', ['住所', '電話番号①', '電話番号②']],
   ['工事内容', ['工事内容', '外壁種類', '外壁材', '屋根材', '防水', '外壁①', '外壁②', '外壁③', '外壁④', '屋根色']],
-  ['日程', ['着工日', '完工日', '入金日', '口コミ', 'メンテ1か月', 'メンテ5年', 'メンテ10年']],
+  ['日程', ['着工日', '完工日', '入金日', '口コミ', 'メンテ1年', 'メンテ5年', 'メンテ10年']],
   ['金額(契約)', ['契約金額(万円)', '__gross']],
   ['経費(円)', ['材料費', '足場屋', '足場発注', '職人①', '職人①発注', '職人②', '職人②発注', '職人③', '職人③発注', '職人④', '職人④発注', '駐車場代', '道路使用', '道路占用', '塗板', 'その他']],
 ];
