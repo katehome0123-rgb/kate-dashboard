@@ -99,6 +99,20 @@ test('担当Aだけの案件は60%分だけ担当者に入り、全体には100%
   assert.equal(pm.rows[7].by['乙'].gross, 21);
 });
 
+test('着工粗利(actualIfDone): 完工済みは実際の利益(着地利益)、未完工は予想粗利のまま', () => {
+  // A: 完工済み。契約110万円(税抜100万円)、経費20万円 → 実際の利益80万円。予想粗利(30万円)は使わない
+  const a = E.enrichCustomer({ 契約日: '2026-01-05', 着工日: '2026-03-10', 完工日: '2026-04-01', '契約金額(万円)': 110, '粗利(万円・手入力)': 30, 材料費: 200000, 集客経路: '訪問', 顧客名: 'A', 担当C: '甲' });
+  // B: まだ未完工。予想粗利25万円をそのまま使う
+  const b = E.enrichCustomer({ 契約日: '2026-01-06', 着工日: '2026-03-15', '契約金額(万円)': 100, '粗利(万円・手入力)': 25, 集客経路: '訪問', 顧客名: 'B', 担当C: '甲' });
+  const pm = E.personMonthly([a, b], 2026, '着工日', { actualIfDone: true });
+  const m = pm.rows[2]; // 3月
+  assert.ok(Math.abs(m.all.gross - (80 + 25)) < 1e-6);
+  assert.ok(Math.abs(m.by['甲'].gross - (80 + 25)) < 1e-6);
+  // actualIfDoneを指定しない(既定false)場合は、完工済みでも従来通り予想粗利(30万円)を使う
+  const pmDefault = E.personMonthly([a, b], 2026, '着工日');
+  assert.equal(pmDefault.rows[2].all.gross, 30 + 25);
+});
+
 test('メンテ: 予定日の計算と、1案件1行・3回の進み具合・開始日・追加案件の扱い', () => {
   assert.equal(E.addMonths('2026-01-31', 1), '2026-02-28');
   assert.equal(E.dueDate('2026-08-15', '1年'), '2027-08-15');
