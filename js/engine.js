@@ -89,8 +89,10 @@ export const yearsOfCustomers = (custs) => [...new Set(custs.map((c) => c._year)
 // 契約本数: countBothOnJoint=true(既定・着工粗利タブ等)では、共同担当の案件は二人とも1本と数える(全体は重複なし)。
 // countBothOnJoint=false(売上タブ)では、共同担当の案件は担当Aだけに1本を入れる(担当Cには入れない)。担当Cだけの案件は従来通り担当Cに入る。
 // どちらも追加・下請けは本数に数えない。
+// actualIfDone=true(着工粗利タブ)では、完工済み(_done)の案件は契約時の予想粗利(_gross)の代わりに、
+// 実際の着地利益(_landing・円)を万円に直したものを使う。未完工の案件は経費が未確定なので従来通り予想粗利のまま。
 export const NO_PERSON = '(担当なし)';
-export function personMonthly(custs, year, by = '契約日', { countBothOnJoint = true } = {}) {
+export function personMonthly(custs, year, by = '契約日', { countBothOnJoint = true, actualIfDone = false } = {}) {
   const blank = () => ({ sales: 0, gross: 0, count: 0 });
   const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, all: blank(), by: {} }));
   const total = { all: blank(), by: {} };
@@ -108,14 +110,15 @@ export function personMonthly(custs, year, by = '契約日', { countBothOnJoint 
     else shares.push([C || NO_PERSON, 1]);
     const r = rows[monthOf(c[by]) - 1];
     const n = c._count ? 1 : 0;
-    r.all.sales += c._sales; r.all.gross += c._gross; r.all.count += n;
-    total.all.sales += c._sales; total.all.gross += c._gross; total.all.count += n;
+    const g = actualIfDone && c._done ? c._landing / 10000 : c._gross; // 完工済みは実際の利益、未完工は予想粗利のまま
+    r.all.sales += c._sales; r.all.gross += g; r.all.count += n;
+    total.all.sales += c._sales; total.all.gross += g; total.all.count += n;
     // 本数の割り当て先: countBothOnJoint=falseかつ担当C・担当Aの両方がいる案件は、担当Aだけに本数を入れる
     const countOnlyTo = !countBothOnJoint && C && A ? A : null;
     for (const [name, share] of shares) {
       const cnt = countOnlyTo === null ? n : (name === countOnlyTo ? n : 0);
-      put(r, name, c._sales * share, c._gross * share, cnt);
-      put(total, name, c._sales * share, c._gross * share, cnt);
+      put(r, name, c._sales * share, g * share, cnt);
+      put(total, name, c._sales * share, g * share, cnt);
       totals.set(name, (totals.get(name) || 0) + c._sales * share);
     }
   }
