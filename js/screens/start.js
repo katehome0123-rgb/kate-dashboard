@@ -7,13 +7,15 @@ const dl = (d) => (d ? `${Number(d.slice(0, 4))}/${Number(d.slice(5, 7))}/${Numb
 
 // 着工粗利: 着工月ごとの、担当別の売上・粗利・着工本数。あわせて、これから着工する契約(着工予定)と着工日が未入力の契約
 export function render(ctx) {
-  const st = (ctx.state.start ||= { year: 0, all: {} });
+  const st = (ctx.state.start ||= { year: 0, all: {}, openMonth: {} });
+  st.openMonth ||= {};
   const years = E.startYears(ctx.custs);
   const nowYear = new Date().getFullYear();
   if (!years.includes(st.year)) st.year = years.includes(nowYear) ? nowYear : (years[0] || 0);
   const today = E.todayStr();
   const bl = E.startBacklog(ctx.custs, today);
   const pm = E.personMonthly(ctx.custs, st.year, '着工日', { actualIfDone: true });
+  const monthDetail = (month) => E.startMonthCustomers(ctx.custs, st.year, month, { actualIfDone: true });
 
   const list = (key, title, note, rows, withStart) => {
     if (!rows.length) return null;
@@ -39,8 +41,11 @@ export function render(ctx) {
       bl.none.length ? kpi('着工日が未入力の契約', bl.none.length, '件', `契約金額 ${man(bl.noneSales)}万円 / 予想粗利 ${man(bl.noneGross)}万円`) : null),
     h('div', { class: 'controls', style: 'margin-top:16px' },
       years.length ? segmented(years.map((y) => ({ value: y, label: `${y}年` })), st.year, (v) => { st.year = v; ctx.rerender(); }, '年') : null),
-    years.length ? h('div', { class: 'card' }, personTable(pm, { monthLabel: '着工月', countLabel: '着工数' }),
-      h('p', { class: 'small muted' }, '売上は税込、着工日の月に入れています(契約月ではありません)。粗利は、完工済みの案件は実際の利益(税抜売上−経費の実額)、まだ完工していない案件は契約時に入れた予想粗利です。担当が二人いる案件は クロ(担当C)40% : アポ(担当A)60% に分けています。着工数は共同担当の案件を二人とも1本と数え、「全体」は重複なしです。追加工事と下請け(MIRAI)は本数に数えませんが、売上・粗利には含みます。'),
+    years.length ? h('div', { class: 'card' }, personTable(pm, {
+      monthLabel: '着工月', countLabel: '着工数', detail: monthDetail,
+      isOpen: (m) => !!st.openMonth[m], onToggle: (m) => { st.openMonth[m] = !st.openMonth[m]; ctx.rerender(); },
+    }),
+      h('p', { class: 'small muted' }, '月の行をタップ(クリック)すると、その月に着工した案件ごとの邸名・売上・粗利が見られます。売上は税込、着工日の月に入れています(契約月ではありません)。粗利は、完工済みの案件は実際の利益(税抜売上−経費の実額)、まだ完工していない案件は契約時に入れた予想粗利です。担当が二人いる案件は クロ(担当C)40% : アポ(担当A)60% に分けています。着工数は共同担当の案件を二人とも1本と数え、「全体」は重複なしです。追加工事と下請け(MIRAI)は本数に数えませんが、売上・粗利には含みます。'),
       noPersonNotice(pm)) : h('div', { class: 'card' }, h('p', { class: 'notice' }, '着工日が入っている契約がまだありません。')),
     list('sched', 'これから着工する契約', `着工日が今日(${dl(today)})より後の契約です。着工日の早い順です。`, bl.scheduled, true),
     list('none', '着工日が未入力の契約', '契約日はあるのに着工日が入っていない契約です。まだ着工していないのか、入力もれか、キャンセルになったのかを確認してください。契約日の古い順です。', bl.none, false));
