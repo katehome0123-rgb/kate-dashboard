@@ -92,6 +92,8 @@ export const yearsOfCustomers = (custs) => [...new Set(custs.map((c) => c._year)
 // actualIfDone=true(着工粗利タブ)では、完工済み(_done)の案件は契約時の予想粗利(_gross)の代わりに、
 // 実際の着地利益(_landing・円)を万円に直したものを使う。未完工の案件は経費が未確定なので従来通り予想粗利のまま。
 export const NO_PERSON = '(担当なし)';
+// 月次集計で使う粗利: actualIfDone=trueかつ完工済みなら実際の利益(_landing・万円)、それ以外は予想粗利(_gross)のまま。
+const monthlyGross = (c, actualIfDone) => (actualIfDone && c._done ? c._landing / 10000 : c._gross);
 export function personMonthly(custs, year, by = '契約日', { countBothOnJoint = true, actualIfDone = false } = {}) {
   const blank = () => ({ sales: 0, gross: 0, count: 0 });
   const rows = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, all: blank(), by: {} }));
@@ -110,7 +112,7 @@ export function personMonthly(custs, year, by = '契約日', { countBothOnJoint 
     else shares.push([C || NO_PERSON, 1]);
     const r = rows[monthOf(c[by]) - 1];
     const n = c._count ? 1 : 0;
-    const g = actualIfDone && c._done ? c._landing / 10000 : c._gross; // 完工済みは実際の利益、未完工は予想粗利のまま
+    const g = monthlyGross(c, actualIfDone); // 完工済みは実際の利益、未完工は予想粗利のまま
     r.all.sales += c._sales; r.all.gross += g; r.all.count += n;
     total.all.sales += c._sales; total.all.gross += g; total.all.count += n;
     // 本数の割り当て先: countBothOnJoint=falseかつ担当C・担当Aの両方がいる案件は、担当Aだけに本数を入れる
@@ -667,6 +669,22 @@ export function startBacklog(custs, today = todayStr()) {
   return { scheduled, none, scheduledSales: sum(scheduled, 'sales'), scheduledGross: sum(scheduled, 'gross'), noneSales: sum(none, 'sales'), noneGross: sum(none, 'gross') };
 }
 export const startYears = (custs) => [...new Set(custs.map((c) => yearOf(c['着工日'])).filter(Boolean))].sort((a, b) => b - a);
+
+// 着工粗利タブのドリルダウン: 指定した年月に着工した案件の一覧(邸名・担当・売上・粗利)。着工日の早い順。
+// 粗利は personMonthly の actualIfDone と同じ考え方(完工済みは実際の利益、未完工は予想粗利)。
+export function startMonthCustomers(custs, year, month, { actualIfDone = true } = {}) {
+  return custs.filter((c) => c['着工日'] && yearOf(c['着工日']) === year && monthOf(c['着工日']) === month)
+    .map((c) => ({
+      name: c['顧客名'],
+      add: c._add,
+      sub: c._sub,
+      person: [c['担当C'], c['担当A']].filter(Boolean).join('・') || null,
+      startDate: c['着工日'],
+      sales: c._sales,
+      gross: monthlyGross(c, actualIfDone),
+    }))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.name.localeCompare(b.name));
+}
 
 
 // ---- 売上ボード(年ごとの 担当 × 月。前のマスターシートと同じ見た目用) ----------------
