@@ -113,6 +113,20 @@ test('着工粗利(actualIfDone): 完工済みは実際の利益(着地利益)�
   assert.equal(pmDefault.rows[2].all.gross, 30 + 25);
 });
 
+test('着工粗利のドリルダウン(startMonthCustomers): その月に着工した案件の邸名・担当・売上・粗利を着工日順で返す', () => {
+  const a = E.enrichCustomer({ 契約日: '2026-01-05', 着工日: '2026-03-10', 完工日: '2026-04-01', '契約金額(万円)': 110, '粗利(万円・手入力)': 30, 材料費: 200000, 集客経路: '訪問', 顧客名: 'A邸', 担当C: '甲' });
+  const b = E.enrichCustomer({ 契約日: '2026-01-06', 着工日: '2026-03-05', '契約金額(万円)': 100, '粗利(万円・手入力)': 25, 集客経路: '訪問', 顧客名: 'B邸', 担当C: '甲', 担当A: '乙' });
+  const c = E.enrichCustomer({ 契約日: '2026-01-07', 着工日: '2026-04-01', '契約金額(万円)': 50, '粗利(万円・手入力)': 10, 集客経路: '訪問', 顧客名: 'C邸' });
+  const rows = E.startMonthCustomers([a, b, c], 2026, 3, { actualIfDone: true });
+  assert.deepEqual(rows.map((r) => r.name), ['B邸', 'A邸']); // 着工日の早い順(3/5 → 3/10)。4月のC邸は含まない
+  assert.equal(rows[0].person, '甲・乙');
+  assert.equal(rows[0].sales, 100);
+  assert.ok(Math.abs(rows[0].gross - 25) < 1e-6); // B邸は未完工なので予想粗利のまま
+  assert.equal(rows[1].person, '甲');
+  assert.ok(Math.abs(rows[1].gross - 80) < 1e-6); // A邸は完工済みなので実際の利益(80万円)
+  assert.deepEqual(E.startMonthCustomers([a, b, c], 2026, 5), []); // 着工が無い月は空配列
+});
+
 test('メンテ: 予定日の計算と、1案件1行・3回の進み具合・開始日・追加案件の扱い', () => {
   assert.equal(E.addMonths('2026-01-31', 1), '2026-02-28');
   assert.equal(E.dueDate('2026-08-15', '1年'), '2027-08-15');
