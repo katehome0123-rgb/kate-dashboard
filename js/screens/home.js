@@ -14,7 +14,7 @@ export function render(ctx) {
   const today = E.todayStr();
   ctx.state.alertAll ||= {};
   const l = E.buildLeadAlerts(ctx.data, today);
-  const stages = E.buildTaskAlerts(ctx.data, today);
+  const stages = E.buildSiteTaskAlerts(ctx.data, today);
   const kpi = (cls, label, n) => h('div', { class: `card kpi alertkpi ${cls}` }, h('div', { class: 'label' }, label), h('div', { class: 'value' }, n, h('small', null, '件')));
   const taskTotal = stages.reduce((a, s) => a + s.rows.length, 0);
   const none = l.estimate.length + l.cancel.length + taskTotal === 0;
@@ -44,7 +44,7 @@ export function render(ctx) {
 
     ...stages.map((s) => (s.rows.length ? alertSection(ctx, `task-${s.key}`, {
       level: 'urgent', title: `発注タスク:${s.label}を過ぎても終わっていない項目がある案件`,
-      lead: TASK_STAGE_LEAD[s.key](s) + '。「発注タスク」画面でチェックを入れると消えます。',
+      lead: TASK_STAGE_LEAD[s.key](s) + '。「発注タスク」画面で項目を確認し、スプレッドシートの「現場タスク」シートでチェックを入れると消えます。',
       columns: [{ label: '邸名' }, { label: '契約日' }, { label: '着工日' }, { label: '経過', num: true }, { label: '担当' }, { label: '終わっていない項目' }],
       rows: s.rows,
       rowCells: (r) => [h('td', null, r.name), h('td', null, r.contractDate), h('td', null, r.startDate || '–'), h('td', { class: 'num' }, `${r.days}日`), h('td', null, r.person || '–'), h('td', null, r.missing.join('・'))],
