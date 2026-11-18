@@ -297,3 +297,83 @@ export async function mapPdfBlob(model) {
   }
   return new Blob([buildPdf(pages, A4P)], { type: 'application/pdf' });
 }
+
+// ---- 担当別収支(A4縦・1枚に収める) ------------------------------------------
+// model = { title, person, periodLabel, payLabel, issued, kpis:[{label,value}],
+//   rows:[{label,value,note}], total, extra:{label,lines:[{label,value}]}|null, footnote }
+const SAB_W = 794, SAB_H = 1123;
+export function drawSabetsuPage(model, { scale = 2.2 } = {}) {
+  const M = 46;
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(SAB_W * scale); cv.height = Math.round(SAB_H * scale);
+  const c = cv.getContext('2d');
+  c.scale(scale, scale);
+  c.fillStyle = '#fff'; c.fillRect(0, 0, SAB_W, SAB_H);
+  c.textBaseline = 'alphabetic';
+  // 見出し
+  c.fillStyle = '#111'; c.font = `700 24px ${FONT}`; c.fillText(model.title, M, M + 22);
+  c.fillStyle = '#444'; c.font = `14px ${FONT}`; c.fillText(`${model.person} 様 ／ ${model.periodLabel}`, M, M + 46);
+  c.textAlign = 'right'; c.fillText(`発行日 ${model.issued}`, SAB_W - M, M + 22);
+  c.textAlign = 'left';
+  c.strokeStyle = '#ccc'; c.lineWidth = 1;
+  c.beginPath(); c.moveTo(M, M + 60); c.lineTo(SAB_W - M, M + 60); c.stroke();
+
+  // KPIカード(3枚)
+  let y = M + 82;
+  const kpiW = (SAB_W - M * 2 - 24) / 3;
+  model.kpis.forEach((k, i) => {
+    const x = M + i * (kpiW + 12);
+    c.strokeStyle = '#ddd'; c.fillStyle = '#fafafa';
+    (c.roundRect ? c.roundRect(x, y, kpiW, 74, 8) : c.rect(x, y, kpiW, 74));
+    c.fill(); c.stroke();
+    c.fillStyle = '#666'; c.font = `12px ${FONT}`; c.fillText(k.label, x + 14, y + 24);
+    c.fillStyle = k.neg ? '#dc2626' : '#111'; c.font = `700 20px ${FONT}`;
+    c.fillText(k.value, x + 14, y + 54);
+  });
+  y += 74 + 28;
+
+  // 内訳の表
+  c.fillStyle = '#111'; c.font = `700 15px ${FONT}`; c.fillText('内訳', M, y); y += 10;
+  c.strokeStyle = '#999'; c.beginPath(); c.moveTo(M, y + 6); c.lineTo(SAB_W - M, y + 6); c.stroke();
+  y += 28;
+  const rowH = 30;
+  for (const r of model.rows) {
+    c.fillStyle = '#333'; c.font = `14px ${FONT}`; c.fillText(r.label, M + 4, y);
+    if (r.note) { c.fillStyle = '#888'; c.font = `11px ${FONT}`; c.fillText(r.note, M + 4, y + 15); }
+    c.textAlign = 'right'; c.fillStyle = '#111'; c.font = `700 15px ${FONT}`; c.fillText(r.value, SAB_W - M - 4, y);
+    c.textAlign = 'left';
+    y += r.note ? rowH + 10 : rowH;
+    c.strokeStyle = '#eee'; c.beginPath(); c.moveTo(M, y - 10); c.lineTo(SAB_W - M, y - 10); c.stroke();
+  }
+  c.strokeStyle = '#555'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(M, y - 2); c.lineTo(SAB_W - M, y - 2); c.stroke();
+  y += 14;
+  c.fillStyle = '#111'; c.font = `700 16px ${FONT}`; c.fillText('利益合計', M + 4, y);
+  c.textAlign = 'right'; c.fillText(model.total, SAB_W - M - 4, y); c.textAlign = 'left';
+  y += 40;
+
+  // 人ごとの参考表(あれば)
+  if (model.extra) {
+    c.fillStyle = '#111'; c.font = `700 15px ${FONT}`; c.fillText(model.extra.label, M, y); y += 10;
+    c.strokeStyle = '#999'; c.beginPath(); c.moveTo(M, y + 6); c.lineTo(SAB_W - M, y + 6); c.stroke();
+    y += 26;
+    for (const l of model.extra.lines) {
+      c.fillStyle = '#333'; c.font = `13px ${FONT}`; c.fillText(l.label, M + 4, y);
+      c.textAlign = 'right'; c.fillStyle = '#111'; c.font = `700 14px ${FONT}`; c.fillText(l.value, SAB_W - M - 4, y);
+      c.textAlign = 'left';
+      y += 26;
+    }
+    y += 16;
+  }
+
+  // 注記
+  c.fillStyle = '#666'; c.font = `11px ${FONT}`;
+  const noteLines = wrap(c, model.footnote, SAB_W - M * 2);
+  noteLines.forEach((line, i) => c.fillText(line, M, SAB_H - M - (noteLines.length - i - 1) * 15));
+  return cv;
+}
+export async function sabetsuPdfBlob(model) {
+  const cv = drawSabetsuPage(model);
+  const blob = await new Promise((res) => cv.toBlob(res, 'image/jpeg', 0.92));
+  const page = { w: cv.width, h: cv.height, jpeg: new Uint8Array(await blob.arrayBuffer()) };
+  return new Blob([buildPdf([page], A4P)], { type: 'application/pdf' });
+}
