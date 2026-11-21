@@ -339,7 +339,7 @@ export function buildMaintAlerts(data, custs, today, { soonDays = 30 } = {}) {
       else if (-over <= soonDays) state = 'soon';
       return { kind, due, doneOn, state, days: over };
     });
-    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s\u3000]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
+    const base = { custId: c['顧客ID'] || `${c['顧客名']}|${c['契約日']}`, name: String(c['顧客名'] || '').split(/[\s　]/)[0] + '邸', phone: c['電話番号①'] || '', address: c['住所'] || '', finish: c['完工日'], steps };
     const od = steps.filter((x) => x.state === 'overdue');
     if (od.length) urgent.push({ ...base, kind: od[0].kind, due: od[0].due, days: od[0].days, others: od.length - 1 });
     else {
@@ -362,7 +362,7 @@ export function buildLeadAlerts(data, today) {
   const estDays = settingNum(data, '見積り忘れの確認日数', 7);
   const estimate = [], cancel = [];
   // 反響がすでに契約になっているか: IDではなく、同じ苗字で、反響日以後に契約した顧客がいるかで見る
-  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s\u3000]/)[0];
+  const sur = (t) => String(t || '').replace(/邸$|様$/, '').split(/[\s　]/)[0];
   const contracts = new Map();
   for (const c of data['顧客'] || []) {
     const k = sur(c['顧客名']); if (!k || !c['契約日']) continue;
@@ -1218,7 +1218,7 @@ export const TASK_ALERT_STAGES = [
   { key: 'start1', label: '着工して1週間', items: ['着手'], due: (c) => (c['着工日'] ? E_addDays(c['着工日'], 7) : null) },
   { key: 'startmonth', label: '着工して1か月', items: ['完工', 'BeforeAfter'], due: (c) => (c['着工日'] ? addMonths(c['着工日'], 1) : null) },
 ];
-export function buildTaskAlerts(data, today = todayStr()) {
+export function buildSiteTaskAlerts(data, today = todayStr()) {
   const custs = (data && data['顧客']) || [];
   const open = custs.filter((c) => c['契約日'] && c['顧客名'] && !c['入金日']);
   const doneMap = new Map();
